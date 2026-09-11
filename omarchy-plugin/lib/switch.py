@@ -51,7 +51,7 @@ def main() -> int:
         if res is None:
             print("conversion failed", file=sys.stderr)
             return 1
-        return emit(res, None)
+        return emit(res, a.to_layout)
 
     if a.mode == "auto":
         # Conservative single-word mode: leave normal English/Ukrainian alone.
@@ -64,18 +64,17 @@ def main() -> int:
             return 2
         return emit(r[0], r[1])
 
-    if a.mode == "last-word":
-        # останнє слово — як режим Last Word у macOS-версії
-        parts = text.rsplit(" ", 1)
-        if len(parts) == 2:
-            head, tail = parts
-            r = convert_selected(tail, layouts)
-            if r is None:
-                print("no wrong layout detected", file=sys.stderr)
-                return 2
-            return emit(head + " " + r[0], r[1])
-
-    if a.mode == "greedy":
+    if a.mode in ("greedy", "last-word"):
+        if a.mode == "last-word":
+            # останнє слово — як режим Last Word у macOS-версії
+            parts = text.rsplit(" ", 1)
+            if len(parts) == 2:
+                head, tail = parts
+                r = convert_selected(tail, layouts)
+                if r is None:
+                    print("no wrong layout detected", file=sys.stderr)
+                    return 2
+                return emit(head + " " + r[0], r[1])
         r = convert_greedy(text, layouts)
         if r is None:
             # fallback: спробувати як звичайне виділення

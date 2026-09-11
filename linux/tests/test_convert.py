@@ -96,6 +96,11 @@ check("auto CLI gibberish", run_auto("ghbdsn"), (0, "привіт"))
 check("auto CLI english", run_auto("hello"), (2, ""))
 check("auto CLI trailing period", run_auto("ghbdsn."), (0, "привіт."))
 
+# last-word with a single token must still go through the greedy path, not skip.
+_r = subprocess.run([sys.executable, _switch, "--mode", "last-word", "ghbdsn"],
+                    capture_output=True, text=True)
+check("last-word single word", (_r.returncode, _r.stdout), (0, "привіт"))
+
 if fails:
     print("\nFAILURES:")
     for f in fails:

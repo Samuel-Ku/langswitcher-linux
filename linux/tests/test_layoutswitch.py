@@ -69,6 +69,17 @@ ok = ls.switch_to("pl", devices=devices, runner=fake_run)
 check("switch_to pl missing -> False", ok, False)
 check("switch_to pl did not call runner", calls, [])
 
+
+def fail_run(args, **kw):
+    class R:
+        returncode = 1
+        stdout = ""
+    return R()
+
+
+check("switch_to nonzero exit -> False",
+      ls.switch_to("uk", devices=devices, runner=fail_run), False)
+
 if fails:
     print("\nFAILURES:")
     for f in fails:

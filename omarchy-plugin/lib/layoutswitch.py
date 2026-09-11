@@ -76,8 +76,8 @@ def switch_to(lang: str, devices: dict | None = None, runner=subprocess.run) -> 
     if not keyboard or index is None:
         return False
     try:
-        runner(["hyprctl", "switchxkblayout", keyboard["name"], str(index)],
-               capture_output=True, text=True, timeout=3)
-        return True
+        r = runner(["hyprctl", "switchxkblayout", keyboard["name"], str(index)],
+                   capture_output=True, text=True, timeout=3)
+        return getattr(r, "returncode", 0) == 0
     except Exception:
         return False
