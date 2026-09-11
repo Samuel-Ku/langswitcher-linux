@@ -135,7 +135,7 @@ fi
 
 PYMODE="$MODE"
 [[ "$MODE" == "selection" ]] || PYMODE="greedy"
-CONVERTED="$(python3 "$CONVERTER" --layouts "$LAYOUTS" --mode "$PYMODE" "$TEXT" 2>/dev/null)" || {
+CONVERTED="$(python3 "$CONVERTER" --layouts "$LAYOUTS" --mode "$PYMODE" --switch always "$TEXT" 2>/dev/null)" || {
   notify "Не схоже на неправильну розкладку"
   exit 2
 }

@@ -30,6 +30,10 @@ irm https://raw.githubusercontent.com/Samuel-Ku/langswitcher-linux/main/windows/
   справжнє слово в іншій (голосна є). Тобто `ghbdsn` → `привіт`, а от
   звичайне англійське `hello`/`test`/`the` авторежим **не чіпає**.
 - Авторежим вимикається в меню іконки в треї (там же ручна конвертація).
+- **Layout Switch mode (як у macOS):** після конвертації міняється й системна
+  мова вводу на цільову (`LoadKeyboardLayout` + `WM_INPUTLANGCHANGEREQUEST`),
+  щоб наступне слово вже було правильним. Тумблер — у треї
+  («Switch layout after convert»).
 - Налаштування (`auto on/off`) зберігається в `settings.ini` поруч зі скриптом.
 
 ## Розкладки

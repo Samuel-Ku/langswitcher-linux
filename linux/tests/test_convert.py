@@ -71,11 +71,14 @@ check("punct: strict with comma", looks_like_wrong_layout_strict("ghbdsn,", L), 
 check("punct: strict english period", looks_like_wrong_layout_strict("hello.", L), False)
 check("punct: strict only symbols", looks_like_wrong_layout_strict("...", L), False)
 
-# The core is duplicated into the plugin bundle on purpose; guard against drift.
-_here = os.path.join(os.path.dirname(__file__), "..", "lib", "langswitcher.py")
-_twin = os.path.join(os.path.dirname(__file__), "..", "..", "omarchy-plugin", "lib", "langswitcher.py")
-if os.path.exists(_twin):
-    check("lib copies identical", filecmp.cmp(_here, _twin, shallow=False), True)
+# The core lib is duplicated into the plugin bundle on purpose; guard against drift.
+_libdir = os.path.join(os.path.dirname(__file__), "..", "lib")
+_twindir = os.path.join(os.path.dirname(__file__), "..", "..", "omarchy-plugin", "lib")
+if os.path.isdir(_twindir):
+    for _name in ("langswitcher.py", "switch.py", "layoutswitch.py"):
+        check(f"lib copies identical: {_name}",
+              filecmp.cmp(os.path.join(_libdir, _name), os.path.join(_twindir, _name),
+                          shallow=False), True)
 else:
     print("skip: lib copies identical (twin not present in this deployment)")
 

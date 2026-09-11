@@ -3,6 +3,7 @@
 import argparse
 import sys
 
+import layoutswitch
 from langswitcher import (
     DEFAULT_LAYOUTS,
     convert,
@@ -23,6 +24,9 @@ def parse_args():
                    default="selection",
                    help="greedy = Smart Conversion (Greedy Line), auto = only convert a word "
                         "that clearly looks wrong-layout (Punto-style, used by the Windows hook)")
+    p.add_argument("--switch", choices=["never", "always", "if-converted"], default="never",
+                   help="switch the OS active layout to the conversion target after converting "
+                        "(default never; macOS defaults to always, the workers pass that)")
     return p.parse_args()
 
 
@@ -36,13 +40,18 @@ def main() -> int:
         print("nothing to convert", file=sys.stderr)
         return 1
 
+    def emit(out: str, target: str | None) -> int:
+        print(out, end="")
+        if target is not None and layoutswitch.should_switch(a.switch, True):
+            layoutswitch.switch_to(target)
+        return 0
+
     if a.from_layout and a.to_layout:
         res = convert(text, a.from_layout, a.to_layout)
         if res is None:
             print("conversion failed", file=sys.stderr)
             return 1
-        print(res, end="")
-        return 0
+        return emit(res, None)
 
     if a.mode == "auto":
         # Conservative single-word mode: leave normal English/Ukrainian alone.
@@ -53,21 +62,20 @@ def main() -> int:
         if r is None:
             print("no wrong layout detected", file=sys.stderr)
             return 2
-        print(r[0], end="")
-        return 0
+        return emit(r[0], r[1])
 
-    if a.mode in ("greedy", "last-word"):
-        if a.mode == "last-word":
-            # останнє слово — як режим Last Word у macOS-версії
-            parts = text.rsplit(" ", 1)
-            if len(parts) == 2:
-                head, tail = parts
-                r = convert_selected(tail, layouts)
-                if r is None:
-                    print("no wrong layout detected", file=sys.stderr)
-                    return 2
-                print(head + " " + r[0], end="")
-                return 0
+    if a.mode == "last-word":
+        # останнє слово — як режим Last Word у macOS-версії
+        parts = text.rsplit(" ", 1)
+        if len(parts) == 2:
+            head, tail = parts
+            r = convert_selected(tail, layouts)
+            if r is None:
+                print("no wrong layout detected", file=sys.stderr)
+                return 2
+            return emit(head + " " + r[0], r[1])
+
+    if a.mode == "greedy":
         r = convert_greedy(text, layouts)
         if r is None:
             # fallback: спробувати як звичайне виділення
@@ -75,15 +83,13 @@ def main() -> int:
         if r is None:
             print("no wrong layout detected", file=sys.stderr)
             return 2
-        print(r[0], end="")
-        return 0
+        return emit(r[0], r[1])
 
     r = convert_selected(text, layouts)
     if r is None:
         print("no wrong layout detected", file=sys.stderr)
         return 2
-    print(r[0], end="")
-    return 0
+    return emit(r[0], r[1])
 
 
 if __name__ == "__main__":

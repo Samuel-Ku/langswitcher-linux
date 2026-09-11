@@ -10,9 +10,16 @@ SendMode "Input"
 ; ================= Settings =================
 DoubleShiftMs := 300
 AutoEnabled := true
+SwitchAfterConvert := true
 SettingsFile := A_ScriptDir "\settings.ini"
-if FileExist(SettingsFile)
+if FileExist(SettingsFile) {
     AutoEnabled := IniRead(SettingsFile, "main", "auto", 1) ? true : false
+    SwitchAfterConvert := IniRead(SettingsFile, "main", "switch", 1) ? true : false
+}
+
+; Layout Switch mode: target language -> Windows input locale id (HKL).
+LangHKL := Map("en", "00000409", "uk", "00000422", "pl", "00000415")
+LastTargetLang := ""
 
 A_IconTip := "LangSwitcher — Shift+Shift: convert, Space: auto"
 
@@ -153,6 +160,7 @@ SplitAffixes(text, &lead, &core, &trail) {
 ; (Polish programmer's layout is physically US QWERTY, so en<->pl has no wrong-layout case.)
 ; Only the alphanumeric core is mapped; leading/trailing punctuation is preserved.
 AutoConvert(text) {
+    global LastTargetLang
     if (text = "" || HasPolish(text))
         return ""
     SplitAffixes(text, &lead, &core, &trail)
@@ -160,8 +168,10 @@ AutoConvert(text) {
         return ""
     if HasCyrillic(core) {
         toLang := HasDistinctiveUkrOpt(core) ? "pl" : "en"
+        LastTargetLang := toLang
         return lead . CoreConvert(core, "uk", toLang) . trail
     }
+    LastTargetLang := "uk"
     return lead . CoreConvert(core, "en", "uk") . trail
 }
 
@@ -185,6 +195,20 @@ LooksWrongAuto(word) {
 }
 
 ; ================= Clipboard helpers =================
+; Switch the OS input language to `lang` (macOS Layout Switch mode). Best effort:
+; no-op when the layout is not installed. LoadKeyboardLayout + the documented
+; WM_INPUTLANGCHANGEREQUEST (0x50) to the active window.
+SwitchToLang(lang) {
+    global LangHKL
+    if !LangHKL.Has(lang)
+        return false
+    hkl := DllCall("LoadKeyboardLayout", "Str", LangHKL[lang], "UInt", 1, "Ptr")
+    if !hkl
+        return false
+    try PostMessage(0x50, 0, hkl, , "A")
+    return true
+}
+
 PasteText(text) {
     saved := ClipboardAll()
     A_Clipboard := ""
@@ -214,7 +238,7 @@ OnWordEnd(hook) {
     word := hook.Input
     endKey := hook.EndKey
     StartHook()
-    global AutoEnabled
+    global AutoEnabled, SwitchAfterConvert, LastTargetLang
     if (endKey = "{Space}" && AutoEnabled && LooksWrongAuto(word)) {
         conv := AutoConvert(word)
         if (conv != "" && conv != word) {
@@ -223,6 +247,8 @@ OnWordEnd(hook) {
             Sleep(20)
             PasteText(conv)
             Send("{Space}")
+            if (SwitchAfterConvert)
+                SwitchToLang(LastTargetLang)
             StartHook()
         }
     }
@@ -247,6 +273,7 @@ lastShift := 0
 }
 
 ConvertSelection() {
+    global SwitchAfterConvert, LastTargetLang
     StopHook()
     saved := ClipboardAll()
     A_Clipboard := ""
@@ -260,6 +287,8 @@ ConvertSelection() {
             if ClipWait(0.8) {
                 Send("^v")
                 Sleep(120)
+                if (SwitchAfterConvert)
+                    SwitchToLang(LastTargetLang)
             }
         }
     }
@@ -274,6 +303,9 @@ tray.Add()
 tray.Add("Auto-convert after Space", (*) => ToggleAuto())
 if AutoEnabled
     tray.Check("Auto-convert after Space")
+tray.Add("Switch layout after convert", (*) => ToggleSwitch())
+if SwitchAfterConvert
+    tray.Check("Switch layout after convert")
 
 ToggleAuto() {
     global AutoEnabled
@@ -283,6 +315,16 @@ ToggleAuto() {
         A_TrayMenu.Check("Auto-convert after Space")
     else
         A_TrayMenu.Uncheck("Auto-convert after Space")
+}
+
+ToggleSwitch() {
+    global SwitchAfterConvert
+    SwitchAfterConvert := !SwitchAfterConvert
+    IniWrite(SwitchAfterConvert ? 1 : 0, SettingsFile, "main", "switch")
+    if SwitchAfterConvert
+        A_TrayMenu.Check("Switch layout after convert")
+    else
+        A_TrayMenu.Uncheck("Switch layout after convert")
 }
 
 StartHook()
