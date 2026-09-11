@@ -2,6 +2,7 @@
 """Port self-tests: conversion core (lib/). Run: python3 tests/test_convert.py"""
 import filecmp
 import os
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
@@ -60,6 +61,19 @@ if os.path.exists(_twin):
     check("lib copies identical", filecmp.cmp(_here, _twin, shallow=False), True)
 else:
     print("skip: lib copies identical (twin not present in this deployment)")
+
+# --mode auto is the production path that the Windows auto hook mirrors.
+_switch = os.path.join(os.path.dirname(__file__), "..", "lib", "switch.py")
+
+
+def run_auto(word):
+    r = subprocess.run([sys.executable, _switch, "--mode", "auto", word],
+                       capture_output=True, text=True)
+    return (r.returncode, r.stdout)
+
+
+check("auto CLI gibberish", run_auto("ghbdsn"), (0, "привіт"))
+check("auto CLI english", run_auto("hello"), (2, ""))
 
 if fails:
     print("\nFAILURES:")

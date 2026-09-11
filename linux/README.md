@@ -46,8 +46,15 @@ cd langswitcher-linux
 ~/.local/bin/linux-convert --check   # сесія, бекенд, залежності (JSON)
 echo -n 'ghbdsn' | python3 lib/switch.py --layouts en,uk,pl   # привіт
 echo -n 'привіт' | python3 lib/switch.py --layouts en,uk,pl   # ghbdsn
+echo -n 'hello'  | python3 lib/switch.py --mode auto          # без змін (exit 2)
+echo -n 'ghbdsn' | python3 lib/switch.py --mode auto          # привіт
 python3 tests/test_convert.py                                  # self-tests
 ```
+
+`--mode auto` — обережний однопрохідний режим: конвертує лише те, що справді
+схоже на неправильну розкладку (немає голосної в поточному скрипті й є в
+цільовому), тож звичайні англійські слова не чіпає. Це той самий критерій, що
+використовує хук автозаміни після пробілу на Windows.
 
 ## Розкладки
 

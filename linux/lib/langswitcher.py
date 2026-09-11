@@ -47,16 +47,13 @@ MAPS: dict[str, dict] = {
 
 DEFAULT_LAYOUTS = ["en", "uk", "pl"]
 
-# Польська діакритика, якої нема в жодній іншій мапі (ą ć ę ł ń ś ź ż).
-# Польська programisty фізично = US QWERTY, тому кейсу "не та розкладка"
-# en<->pl для ASCII не існує; а текст з діакритикою — точно польський
-# намір, і конвертувати його не можна.
-_PL_UNIQUE = set("ąćęłńśźżĄĆĘŁŃŚŹŻ")
-_PL_O = set("óÓ")
+# Польська діакритика: ніколи не є артефактом пари en<->uk, тож текст із нею
+# завжди вважаємо навмисною польською і не конвертуємо.
+_PL_DIACRITICS = set("ąćęłńśźżĄĆĘŁŃŚŹŻóÓ")
 
 
-def _is_polish_text(text: str, layouts: list[str]) -> bool:
-    return any(c in _PL_UNIQUE or c in _PL_O for c in text)
+def _is_polish_text(text: str) -> bool:
+    return any(c in _PL_DIACRITICS for c in text)
 
 
 def _is_ascii(c: str) -> bool:
@@ -107,7 +104,7 @@ def convert_selected(text: str, layouts: list[str]) -> tuple[str, str] | None:
     """Порт convertSelectedTextWithInfo. Повертає (конвертований, target_layout)."""
     if len(layouts) < 2:
         return None
-    if "pl" in layouts and _is_polish_text(text, layouts):
+    if _is_polish_text(text):
         return None
     src = detect_source_layout(text, layouts)
     if src is None:
@@ -128,7 +125,7 @@ def looks_like_wrong_layout(text: str, layouts: list[str]) -> bool:
         return False
     if len(layouts) < 2:
         return False
-    if "pl" in layouts and _is_polish_text(trimmed, layouts):
+    if _is_polish_text(trimmed):
         return False
     src = detect_source_layout(trimmed, layouts)
     if src is None:
@@ -175,16 +172,13 @@ def looks_like_wrong_layout_strict(text: str, layouts: list[str], min_len: int =
     trimmed = text.strip()
     if len(trimmed) < min_len or not trimmed.isalpha():
         return False
-    if "pl" in layouts and _is_polish_text(trimmed, layouts):
+    if _is_polish_text(trimmed):
         return False
-    src = detect_source_layout(trimmed, layouts)
-    if src is None:
+    resolved = convert_selected(trimmed, layouts)
+    if resolved is None:
         return False
-    target = next((l for l in layouts if l != src), None)
-    if target is None:
-        return False
-    conv = convert(trimmed, src, target)
-    if conv is None or conv == trimmed:
+    conv, _ = resolved
+    if conv == trimmed:
         return False
     if trimmed.isascii():
         return not _has_vowel(trimmed, _LATIN_VOWELS) and _has_vowel(conv, _CYRILLIC_VOWELS)

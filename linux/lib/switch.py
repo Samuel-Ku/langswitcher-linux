@@ -3,7 +3,13 @@
 import argparse
 import sys
 
-from langswitcher import DEFAULT_LAYOUTS, convert, convert_greedy, convert_selected
+from langswitcher import (
+    DEFAULT_LAYOUTS,
+    convert,
+    convert_greedy,
+    convert_selected,
+    looks_like_wrong_layout_strict,
+)
 
 
 def parse_args():
@@ -13,8 +19,10 @@ def parse_args():
                    help=f"кандидатні розкладки через кому (default: {','.join(DEFAULT_LAYOUTS)})")
     p.add_argument("--from", dest="from_layout", default=None, help="явна source-розкладка")
     p.add_argument("--to", dest="to_layout", default=None, help="явна target-розкладка")
-    p.add_argument("--mode", choices=["selection", "greedy", "last-word"],
-                   default="selection", help="greedy = як Smart Conversion (Greedy Line) з macOS")
+    p.add_argument("--mode", choices=["selection", "greedy", "last-word", "auto"],
+                   default="selection",
+                   help="greedy = Smart Conversion (Greedy Line), auto = only convert a word "
+                        "that clearly looks wrong-layout (Punto-style, used by the Windows hook)")
     return p.parse_args()
 
 
@@ -34,6 +42,18 @@ def main() -> int:
             print("conversion failed", file=sys.stderr)
             return 1
         print(res, end="")
+        return 0
+
+    if a.mode == "auto":
+        # Conservative single-word mode: leave normal English/Ukrainian alone.
+        if not looks_like_wrong_layout_strict(text, layouts):
+            print("no wrong layout detected", file=sys.stderr)
+            return 2
+        r = convert_selected(text, layouts)
+        if r is None:
+            print("no wrong layout detected", file=sys.stderr)
+            return 2
+        print(r[0], end="")
         return 0
 
     if a.mode in ("greedy", "last-word"):

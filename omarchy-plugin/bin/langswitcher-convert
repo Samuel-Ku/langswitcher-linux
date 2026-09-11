@@ -63,8 +63,17 @@ paste_clip() { wl-paste 2>/dev/null || true; }
 
 ctrl_c() { wtype -M ctrl -k c -m ctrl 2>/dev/null; sleep 0.12; }
 ctrl_v() { wtype -M ctrl -k v -m ctrl 2>/dev/null; }
+sel_home() { wtype -M shift -k Home -m shift 2>/dev/null; sleep 0.08; }
+sel_word() { wtype -M ctrl -M shift -k Left -m shift -m ctrl 2>/dev/null; sleep 0.08; }
 
 TEXT=""
+
+# Select a range, copy it, read the clipboard. $1 is sel_home or sel_word.
+sel_and_copy() {
+  "$1"
+  ctrl_c
+  TEXT="$(paste_clip)"
+}
 
 case "$MODE" in
   selection)
@@ -75,18 +84,8 @@ case "$MODE" in
       TEXT="$(paste_clip)"
     fi
     ;;
-  greedy)
-    # як Greedy Line на macOS: виділити до початку рядка і розібрати
-    wtype -M shift -k Home -m shift 2>/dev/null; sleep 0.08
-    ctrl_c
-    TEXT="$(paste_clip)"
-    ;;
-  last-word)
-    # як Last Word на macOS: виділити слово ліворуч від курсора
-    wtype -M ctrl -M shift -k Left -m shift -m ctrl 2>/dev/null; sleep 0.08
-    ctrl_c
-    TEXT="$(paste_clip)"
-    ;;
+  greedy) sel_and_copy sel_home ;;
+  last-word) sel_and_copy sel_word ;;
   *)
     usage; exit 1
     ;;

@@ -78,6 +78,9 @@ AutoConvert(text) {
 ; Latin word that maps to Cyrillic, so auto-converting after Space with it would
 ; rewrite ordinary English. Auto requires: no vowel in the current script AND a
 ; vowel in the converted script (single alphabetic word, length >= 3).
+; Mirrors looks_like_wrong_layout_strict() in lib/langswitcher.py — keep these
+; examples true on BOTH sides: ghbdsn/ghbdtn -> true; hello/test/the/rhythm,
+; any Polish-diacritic word, anything shorter than 3 or with a digit -> false.
 LooksWrongAuto(word) {
     if (StrLen(word) < 3 || !RegExMatch(word, "^[\pL]+$") || HasPolish(word))
         return false
