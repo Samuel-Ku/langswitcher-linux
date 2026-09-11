@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# langswitcher-convert — Wayland worker for the stealth.langswitcher plugin.
+# macOS LangSwitcher (⇧⇧) equivalent for Hyprland: selected text -> hotkey ->
+# converted text pasted back. Python core (physical key positions,
+# auto-detect, greedy line, punctuation preservation) lives in ../lib/.
+#
+# Usage: langswitcher-convert [selection|greedy|last-word] [--layouts en,uk,pl]
+#        langswitcher-convert --check   (deps + self-test as JSON, for Service.qml)
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+LIB_DIR="$(cd "$SCRIPT_DIR/../lib" && pwd)"
+CONVERTER="$LIB_DIR/switch.py"
+LAYOUTS="en,uk,pl"
+
+usage() {
+  echo "usage: $(basename "$0") [selection|greedy|last-word] [--layouts en,uk,pl] | --check" >&2
+}
+
+if [[ "${1:-}" == "--check" ]]; then
+  missing=()
+  for dep in wl-paste wl-copy wtype python3; do
+    command -v "$dep" >/dev/null 2>&1 || missing+=("$dep")
+  done
+  selftest="skipped"
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    if [[ "$(printf 'ghbdsn' | python3 "$CONVERTER" --layouts en,uk,pl 2>/dev/null)" == "привіт" ]] \
+    && [[ -z "$(printf 'Zażółć gęślą jaźń' | python3 "$CONVERTER" --layouts en,uk,pl 2>/dev/null || true)" ]]; then
+      selftest="ok"
+    else
+      selftest="failed"
+    fi
+  fi
+  ok="false"
+  [[ ${#missing[@]} -eq 0 && "$selftest" == "ok" ]] && ok="true"
+  printf '{"ok": %s, "missing": [' "$ok"
+  for i in "${!missing[@]}"; do
+    [[ $i -gt 0 ]] && printf ', '
+    printf '"%s"' "${missing[$i]}"
+  done
+  printf '], "selftest": "%s"}\n' "$selftest"
+  [[ "$ok" == "true" ]]
+  exit $?
+fi
+
+MODE="${1:-selection}"
+if [[ "$MODE" == "--layouts" ]]; then
+  LAYOUTS="${2:-en,uk,pl}"
+  MODE="selection"
+elif [[ "${2:-}" == "--layouts" ]]; then
+  LAYOUTS="${3:-en,uk,pl}"
+fi
+
+need() { command -v "$1" >/dev/null 2>&1 || { echo "langswitcher: missing dep: $1" >&2; exit 1; }; }
+need wl-paste
+need wl-copy
+need wtype
+need python3
+[[ -f "$CONVERTER" ]] || { echo "langswitcher: not found: $CONVERTER" >&2; exit 1; }
+
+paste_primary() { wl-paste --primary 2>/dev/null || true; }
+paste_clip() { wl-paste 2>/dev/null || true; }
+
+ctrl_c() { wtype -M ctrl -k c -m ctrl 2>/dev/null; sleep 0.12; }
+ctrl_v() { wtype -M ctrl -k v -m ctrl 2>/dev/null; }
+
+TEXT=""
+
+case "$MODE" in
+  selection)
+    TEXT="$(paste_primary)"
+    if [[ -z "$TEXT" ]]; then
+      # primary selection порожній — копіюємо виділення через Ctrl+C
+      ctrl_c
+      TEXT="$(paste_clip)"
+    fi
+    ;;
+  greedy)
+    # як Greedy Line на macOS: виділити до початку рядка і розібрати
+    wtype -M shift -k Home -m shift 2>/dev/null; sleep 0.08
+    ctrl_c
+    TEXT="$(paste_clip)"
+    ;;
+  last-word)
+    # як Last Word на macOS: виділити слово ліворуч від курсора
+    wtype -M ctrl -M shift -k Left -m shift -m ctrl 2>/dev/null; sleep 0.08
+    ctrl_c
+    TEXT="$(paste_clip)"
+    ;;
+  *)
+    usage; exit 1
+    ;;
+esac
+
+if [[ -z "$TEXT" ]]; then
+  notify-send "LangSwitcher" "Нема тексту: виділи текст і натисни хоткей" 2>/dev/null || true
+  exit 2
+fi
+
+if [[ "$MODE" == "selection" ]]; then
+  CONVERTED="$(python3 "$CONVERTER" --layouts "$LAYOUTS" --mode selection "$TEXT" 2>/dev/null)" || {
+    notify-send "LangSwitcher" "Не схоже на неправильну розкладку" 2>/dev/null || true
+    exit 2
+  }
+else
+  CONVERTED="$(python3 "$CONVERTER" --layouts "$LAYOUTS" --mode greedy "$TEXT" 2>/dev/null)" || {
+    notify-send "LangSwitcher" "Не схоже на неправильну розкладку" 2>/dev/null || true
+    exit 2
+  }
+fi
+
+if [[ -z "$CONVERTED" || "$CONVERTED" == "$TEXT" ]]; then
+  exit 2
+fi
+
+printf '%s' "$CONVERTED" | wl-copy
+sleep 0.05
+ctrl_v

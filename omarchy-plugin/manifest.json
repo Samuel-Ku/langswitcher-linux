@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "stealth.langswitcher",
+  "name": "LangSwitcher",
+  "version": "1.0.0",
+  "author": "Stealth",
+  "license": "MIT",
+  "description": "Port of macOS LangSwitcher: fix text typed in the wrong keyboard layout (EN/UK/PL) with a hotkey.",
+  "kinds": ["service", "bar-widget"],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "LangSwitcher",
+    "description": "Convert text typed in the wrong layout (EN/UK/PL)",
+    "category": "Utilities",
+    "aliases": ["langswitcher", "layout", "keyboard", "розкладка", "перемикач"],
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

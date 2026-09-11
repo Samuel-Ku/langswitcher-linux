@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# linux-convert — LangSwitcher worker for generic Linux desktops.
+# One script for Ubuntu (GNOME/Wayland) and Linux Mint (Cinnamon/X11):
+# it auto-detects the session and uses Wayland tools (wl-clipboard + wtype)
+# or X11 tools (xclip + xdotool) accordingly.
+#
+# Usage: linux-convert [selection|greedy|last-word] [--layouts en,uk,pl]
+#        linux-convert --check   (session + backend + deps as JSON)
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+LIB_DIR="$(cd "$SCRIPT_DIR/../lib" && pwd)"
+CONVERTER="$LIB_DIR/switch.py"
+LAYOUTS="en,uk,pl"
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+detect_backend() {
+  # Explicit override for testing: LANGSWITCHER_BACKEND=wayland|x11
+  if [[ "${LANGSWITCHER_BACKEND:-}" == "wayland" ]]; then echo wayland; return; fi
+  if [[ "${LANGSWITCHER_BACKEND:-}" == "x11" ]]; then echo x11; return; fi
+  if [[ "${XDG_SESSION_TYPE:-}" == "x11" ]]; then echo x11; return; fi
+  if [[ "${XDG_SESSION_TYPE:-}" == "wayland" ]]; then echo wayland; return; fi
+  if [[ -n "${WAYLAND_DISPLAY:-}" ]] && have wl-copy && have wtype; then echo wayland; return; fi
+  if [[ -n "${DISPLAY:-}" ]] && have xclip && have xdotool; then echo x11; return; fi
+  if have wl-copy && have wtype; then echo wayland; return; fi
+  if have xclip && have xdotool; then echo x11; return; fi
+  echo none
+}
+
+BACKEND="$(detect_backend)"
+
+if [[ "${1:-}" == "--check" ]]; then
+  missing=()
+  case "$BACKEND" in
+    wayland) for dep in wl-paste wl-copy wtype python3; do have "$dep" || missing+=("$dep"); done ;;
+    x11) for dep in xclip xdotool python3; do have "$dep" || missing+=("$dep"); done ;;
+    *) missing+=("wl-clipboard/wtype (wayland) or xclip/xdotool (x11)") ;;
+  esac
+  selftest="skipped"
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    if [[ "$(printf 'ghbdsn' | python3 "$CONVERTER" --layouts en,uk,pl 2>/dev/null)" == "привіт" ]] \
+    && [[ -z "$(printf 'Zażółć gęślą jaźń' | python3 "$CONVERTER" --layouts en,uk,pl 2>/dev/null || true)" ]]; then
+      selftest="ok"
+    else
+      selftest="failed"
+    fi
+  fi
+  session="${XDG_SESSION_TYPE:-unknown}"
+  desktop="${XDG_CURRENT_DESKTOP:-unknown}"
+  ok="false"
+  [[ ${#missing[@]} -eq 0 && "$selftest" == "ok" ]] && ok="true"
+  printf '{"ok": %s, "session": "%s", "desktop": "%s", "backend": "%s", "missing": [' \
+    "$ok" "$session" "$desktop" "$BACKEND"
+  for i in "${!missing[@]}"; do
+    [[ $i -gt 0 ]] && printf ', '
+    printf '"%s"' "${missing[$i]}"
+  done
+  printf '], "selftest": "%s"}\n' "$selftest"
+  [[ "$ok" == "true" ]]
+  exit $?
+fi
+
+MODE="${1:-selection}"
+if [[ "$MODE" == "--layouts" ]]; then
+  LAYOUTS="${2:-en,uk,pl}"
+  MODE="selection"
+elif [[ "${2:-}" == "--layouts" ]]; then
+  LAYOUTS="${3:-en,uk,pl}"
+fi
+
+case "$MODE" in selection|greedy|last-word) ;; *)
+  echo "usage: $(basename "$0") [selection|greedy|last-word] [--layouts en,uk,pl] | --check" >&2
+  exit 1 ;;
+esac
+
+notify() { notify-send "LangSwitcher" "$1" 2>/dev/null || true; }
+
+if [[ "$BACKEND" == "wayland" ]]; then
+  for dep in wl-paste wl-copy wtype python3; do
+    have "$dep" || { echo "langswitcher: missing dep: $dep" >&2; exit 1; }
+  done
+  paste_primary() { wl-paste --primary 2>/dev/null || true; }
+  paste_clip() { wl-paste 2>/dev/null || true; }
+  put_clip() { printf '%s' "$1" | wl-copy; }
+  ctrl_c() { wtype -M ctrl -k c -m ctrl 2>/dev/null; sleep 0.12; }
+  ctrl_v() { wtype -M ctrl -k v -m ctrl 2>/dev/null; }
+  sel_home() { wtype -M shift -k Home -m shift 2>/dev/null; sleep 0.08; }
+  sel_word() { wtype -M ctrl -M shift -k Left -m shift -m ctrl 2>/dev/null; sleep 0.08; }
+elif [[ "$BACKEND" == "x11" ]]; then
+  for dep in xclip xdotool python3; do
+    have "$dep" || { echo "langswitcher: missing dep: $dep" >&2; exit 1; }
+  done
+  paste_primary() { xclip -o -selection primary 2>/dev/null || true; }
+  paste_clip() { xclip -o -selection clipboard 2>/dev/null || true; }
+  put_clip() { printf '%s' "$1" | xclip -selection clipboard 2>/dev/null; }
+  ctrl_c() { xdotool key ctrl+c 2>/dev/null; sleep 0.15; }
+  ctrl_v() { xdotool key ctrl+v 2>/dev/null; }
+  sel_home() { xdotool key Shift+Home 2>/dev/null; sleep 0.1; }
+  sel_word() { xdotool key ctrl+shift+Left 2>/dev/null; sleep 0.1; }
+else
+  echo "langswitcher: no supported backend (need wl-clipboard+wtype on Wayland or xclip+xdotool on X11)" >&2
+  exit 1
+fi
+
+have python3 || { echo "langswitcher: missing dep: python3" >&2; exit 1; }
+[[ -f "$CONVERTER" ]] || { echo "langswitcher: not found: $CONVERTER" >&2; exit 1; }
+
+TEXT=""
+case "$MODE" in
+  selection)
+    TEXT="$(paste_primary)"
+    if [[ -z "$TEXT" ]]; then
+      ctrl_c
+      TEXT="$(paste_clip)"
+    fi
+    ;;
+  greedy)
+    sel_home
+    ctrl_c
+    TEXT="$(paste_clip)"
+    ;;
+  last-word)
+    sel_word
+    ctrl_c
+    TEXT="$(paste_clip)"
+    ;;
+esac
+
+if [[ -z "$TEXT" ]]; then
+  notify "Нема тексту: виділи текст і натисни хоткей"
+  exit 2
+fi
+
+PYMODE="$MODE"
+[[ "$MODE" == "selection" ]] || PYMODE="greedy"
+CONVERTED="$(python3 "$CONVERTER" --layouts "$LAYOUTS" --mode "$PYMODE" "$TEXT" 2>/dev/null)" || {
+  notify "Не схоже на неправильну розкладку"
+  exit 2
+}
+
+if [[ -z "$CONVERTED" || "$CONVERTED" == "$TEXT" ]]; then
+  exit 2
+fi
+
+put_clip "$CONVERTED"
+sleep 0.05
+ctrl_v

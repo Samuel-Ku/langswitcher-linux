@@ -1,0 +1,189 @@
+; LangSwitcher for Windows 11 — port of macOS LangSwitcher + Punto-style auto-switch.
+; Double-Shift converts the selection; typing Space auto-converts the last word
+; if it looks like the wrong layout. Tray icon toggles the auto mode.
+; Requires AutoHotkey v2 (winget install AutoHotkey.AutoHotkey).
+; Keep this file UTF-8 encoded (Cyrillic maps inside).
+#Requires AutoHotkey v2.0
+#SingleInstance Force
+SendMode "Input"
+
+; ================= Settings =================
+DoubleShiftMs := 300
+AutoEnabled := true
+SettingsFile := A_ScriptDir "\settings.ini"
+if FileExist(SettingsFile)
+    AutoEnabled := IniRead(SettingsFile, "main", "auto", 1) ? true : false
+
+A_IconTip := "LangSwitcher — Shift+Shift: convert, Space: auto"
+
+; ================= Layout maps (same tables as the macOS original) =================
+QWERTY := "`1234567890-=qwertyuiop[]\asdfghjkl;'zxcvbnm,./~!@#$%^&*()_+QWERTYUIOP{}|ASDFGHJKL:""ZXCVBNM<>?"
+UKR    := "'1234567890-=йцукенгшщзхї\фівапролджєячсмитьбю.₴!""№;%:?*()_+ЙЦУКЕНГШЩЗХЇ/ФІВАПРОЛДЖЄЯЧСМИТЬБЮ,"
+
+EnToUk := Map()
+UkToEn := Map()
+Loop Min(StrLen(QWERTY), StrLen(UKR)) {
+    q := SubStr(QWERTY, A_Index, 1)
+    u := SubStr(UKR, A_Index, 1)
+    EnToUk[q] := u
+    if !UkToEn.Has(u)
+        UkToEn[u] := q
+}
+
+IsLetter(c) => RegExMatch(c, "\pL")
+HasCyrillic(text) => RegExMatch(text, "[\x{0400}-\x{04FF}]")
+HasPolish(text) => RegExMatch(text, "[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]")
+
+EnToUkWord(text) {
+    global EnToUk
+    out := ""
+    Loop Parse, text {
+        c := A_LoopField
+        if EnToUk.Has(c) {
+            t := EnToUk[c]
+            out .= (!IsLetter(c) && !IsLetter(t)) ? c : t
+        } else {
+            out .= c
+        }
+    }
+    return out
+}
+
+UkToEnWord(text) {
+    global UkToEn
+    out := ""
+    Loop Parse, text {
+        c := A_LoopField
+        if UkToEn.Has(c) {
+            t := UkToEn[c]
+            out .= (!IsLetter(c) && !IsLetter(t)) ? c : t
+        } else {
+            out .= c
+        }
+    }
+    return out
+}
+
+; Direction by content. Polish diacritics = definitely Polish intent, never touch.
+; (Polish programmer's layout is physically US QWERTY, so en<->pl has no wrong-layout case.)
+AutoConvert(text) {
+    if (text = "" || HasPolish(text))
+        return ""
+    if HasCyrillic(text)
+        return UkToEnWord(text)
+    return EnToUkWord(text)
+}
+
+LooksWrong(word) {
+    if (word = "" || HasPolish(word))
+        return false
+    if HasCyrillic(word) {
+        back := UkToEnWord(word)
+        return !RegExMatch(back, "[^\x{00}-\x{7F}]")
+    }
+    fwd := EnToUkWord(word)
+    return RegExMatch(fwd, "[^\x{00}-\x{7F}]") ? true : false
+}
+
+; ================= Clipboard helpers =================
+PasteText(text) {
+    saved := ClipboardAll()
+    A_Clipboard := ""
+    A_Clipboard := text
+    if ClipWait(0.8) {
+        Send("^v")
+        Sleep(120)
+    }
+    A_Clipboard := saved
+}
+
+; ================= Typing hook (auto-convert after Space) =================
+ih := 0
+
+StartHook() {
+    global ih := InputHook("L0", "{Space}{Enter}{Escape}{Tab}")
+    ih.OnEnd := OnWordEnd
+    ih.Start()
+}
+
+StopHook() {
+    global ih
+    try ih.Stop()
+}
+
+OnWordEnd(hook) {
+    word := hook.Input
+    endKey := hook.EndKey
+    StartHook()
+    global AutoEnabled
+    if (endKey = "{Space}" && AutoEnabled && LooksWrong(word)) {
+        conv := AutoConvert(word)
+        if (conv != "" && conv != word) {
+            StopHook()
+            Send("{Backspace " StrLen(word) + 1 "}")
+            Sleep(20)
+            PasteText(conv)
+            Send("{Space}")
+            StartHook()
+        }
+    }
+}
+
+; ================= Double-Shift (manual convert, like macOS) =================
+IsShiftKey(k) => (k = "Shift" || k = "LShift" || k = "RShift")
+
+lastShift := 0
+
+~Shift Up:: {
+    global lastShift, DoubleShiftMs
+    now := A_TickCount
+    if (IsShiftKey(A_PriorKey) && now - lastShift < DoubleShiftMs) {
+        lastShift := 0
+        ConvertSelection()
+    } else if IsShiftKey(A_PriorKey) {
+        lastShift := now
+    } else {
+        lastShift := 0
+    }
+}
+
+ConvertSelection() {
+    StopHook()
+    saved := ClipboardAll()
+    A_Clipboard := ""
+    Send("^c")
+    if ClipWait(0.6) {
+        sel := A_Clipboard
+        conv := AutoConvert(sel)
+        if (conv != "" && conv != sel) {
+            A_Clipboard := ""
+            A_Clipboard := conv
+            if ClipWait(0.8) {
+                Send("^v")
+                Sleep(120)
+            }
+        }
+    }
+    A_Clipboard := saved
+    StartHook()
+}
+
+; ================= Tray =================
+tray := A_TrayMenu
+tray.Add("Convert selection (Shift+Shift)", (*) => ConvertSelection())
+tray.Add()
+tray.Add("Auto-convert after Space", (*) => ToggleAuto())
+if AutoEnabled
+    tray.Check("Auto-convert after Space")
+
+ToggleAuto() {
+    global AutoEnabled
+    AutoEnabled := !AutoEnabled
+    IniWrite(AutoEnabled ? 1 : 0, SettingsFile, "main", "auto")
+    if AutoEnabled
+        A_TrayMenu.Check("Auto-convert after Space")
+    else
+        A_TrayMenu.Uncheck("Auto-convert after Space")
+}
+
+StartHook()
