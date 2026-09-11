@@ -107,6 +107,15 @@ have python3 || { echo "langswitcher: missing dep: python3" >&2; exit 1; }
 [[ -f "$CONVERTER" ]] || { echo "langswitcher: not found: $CONVERTER" >&2; exit 1; }
 
 TEXT=""
+
+# Select a range, copy it, read the clipboard. $1 is the backend-specific
+# selection helper (sel_home / sel_word).
+sel_and_copy() {
+  "$1"
+  ctrl_c
+  TEXT="$(paste_clip)"
+}
+
 case "$MODE" in
   selection)
     TEXT="$(paste_primary)"
@@ -115,16 +124,8 @@ case "$MODE" in
       TEXT="$(paste_clip)"
     fi
     ;;
-  greedy)
-    sel_home
-    ctrl_c
-    TEXT="$(paste_clip)"
-    ;;
-  last-word)
-    sel_word
-    ctrl_c
-    TEXT="$(paste_clip)"
-    ;;
+  greedy) sel_and_copy sel_home ;;
+  last-word) sel_and_copy sel_word ;;
 esac
 
 if [[ -z "$TEXT" ]]; then

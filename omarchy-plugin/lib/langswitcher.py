@@ -8,16 +8,18 @@ Ported 1:1 from:
   - TextConverter.convertSelectedText / looksLikeWrongLayout /
     findWrongLayoutBoundary / convertLineGreedy (TextConverter.swift)
 
+Only the layouts this project ships are kept: en, uk, pl (Russian is
+deliberately absent — it was never needed).
+
+This file is intentionally duplicated in the omarchy-plugin and linux bundles;
+keep both copies byte-identical.
+
 No dependencies, stdlib only.
 """
 
 QWERTY = "`1234567890-=qwertyuiop[]\\asdfghjkl;'zxcvbnm,./~!@#$%^&*()_+QWERTYUIOP{}|ASDFGHJKL:\"ZXCVBNM<>?"
 
-_RUSSIAN = "ё1234567890-=йцукенгшщзхъ\\фывапролджэячсмитьбю.Ё!\"№;%:?*()_+ЙЦУКЕНГШЩЗХЪ/ФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,"
 _UKRAINIAN = "'1234567890-=йцукенгшщзхї\\фівапролджєячсмитьбю.₴!\"№;%:?*()_+ЙЦУКЕНГШЩЗХЇ/ФІВАПРОЛДЖЄЯЧСМИТЬБЮ,"
-_GERMAN = "^1234567890ß´qwertzuiopü+#asdfghjklöäyxcvbnm,.-°!\"§$%&/()=?`QWERTZUIOPÜ*'ASDFGHJKLÖÄYXCVBNM;:_"
-_FRENCH = "²&é\"'(-è_çà)=azertyuiop^$*qsdfghjklmùwxcvbn,;:!³1234567890°+AZERTYUIOP¨£µQSDFGHJKLM%WXCVBN?./§"
-_SPANISH = "º1234567890'¡qwertyuiop`+çasdfghjklñ´zxcvbnm,.-ª!\"·$%&/()=?¿QWERTYUIOP^*ÇASDFGHJKLÑ¨ZXCVBNM;:_"
 
 
 def _build_map(target: str) -> dict:
@@ -34,26 +36,14 @@ def _identity_map() -> dict:
 # Польська programisty фізично збігається з US QWERTY (діакритика через AltGr),
 # тому базова мапа — identity, як і в оригіналі для "british"/"abc".
 # Конвертація en<->pl для звичайного ASCII — no-op (і це правильно).
-# Реальні кейси "не та розкладка" покриваються парами en<->uk, en<->ru.
+# Реальний кейс "не та розкладка" покривається парою en<->uk.
 MAPS: dict[str, dict] = {
     "en": _identity_map(),
     "us": _identity_map(),
     "uk": _build_map(_UKRAINIAN),
     "ua": _build_map(_UKRAINIAN),
-    "ru": _build_map(_RUSSIAN),
     "pl": _identity_map(),  # див. NOTE вище
-    "de": _build_map(_GERMAN),
-    "fr": _build_map(_FRENCH),
-    "es": _build_map(_SPANISH),
 }
-
-# Польська діакритика -> базова латинська (для детекту/евристик).
-PL_FOLD = str.maketrans({
-    "ą": "a", "ć": "c", "ę": "e", "ł": "l", "ń": "n",
-    "ó": "o", "ś": "s", "ź": "z", "ż": "z",
-    "Ą": "A", "Ć": "C", "Ę": "E", "Ł": "L", "Ń": "N",
-    "Ó": "O", "Ś": "S", "Ź": "Z", "Ż": "Z",
-})
 
 DEFAULT_LAYOUTS = ["en", "uk", "pl"]
 
@@ -62,17 +52,11 @@ DEFAULT_LAYOUTS = ["en", "uk", "pl"]
 # en<->pl для ASCII не існує; а текст з діакритикою — точно польський
 # намір, і конвертувати його не можна.
 _PL_UNIQUE = set("ąćęłńśźżĄĆĘŁŃŚŹŻ")
-# ó/Ó є і в іспанській/французькій, тому вважаємо польським
-# лише коли es/fr не серед кандидатів.
 _PL_O = set("óÓ")
 
 
 def _is_polish_text(text: str, layouts: list[str]) -> bool:
-    if any(c in _PL_UNIQUE for c in text):
-        return True
-    if any(c in _PL_O for c in text) and "es" not in layouts and "fr" not in layouts:
-        return True
-    return False
+    return any(c in _PL_UNIQUE or c in _PL_O for c in text)
 
 
 def _is_ascii(c: str) -> bool:
@@ -164,6 +148,47 @@ def looks_like_wrong_layout(text: str, layouts: list[str]) -> bool:
         if src_non_latin and conv_latin_only:
             return True
     return False
+
+
+# Vowels per script, for the conservative auto-mode check below.
+_LATIN_VOWELS = set("aeiouyAEIOUY")
+_CYRILLIC_VOWELS = set("аеєиіїоуюяАЕЄИІЇОУЮЯ")
+
+
+def _has_vowel(text: str, vowels: set) -> bool:
+    return any(c in vowels for c in text)
+
+
+def looks_like_wrong_layout_strict(text: str, layouts: list[str], min_len: int = 3) -> bool:
+    """Conservative check for AUTO modes (Punto-style split-word conversion).
+
+    ``looks_like_wrong_layout`` (the faithful macOS port) returns True for *any*
+    Latin word that maps to Cyrillic, so it must only ever run on an explicit
+    user action. Auto-converting after Space needs a stricter signal, or every
+    ordinary English word would be rewritten.
+
+    Rule: fire only when the word is implausible in its current script (no
+    vowel) and plausible in the target script (has a vowel). "ghbdsn" has no
+    Latin vowel and maps to "привіт" (has Cyrillic vowels) -> convert. "hello"
+    already has vowels -> leave alone. Polish diacritics never convert.
+    """
+    trimmed = text.strip()
+    if len(trimmed) < min_len or not trimmed.isalpha():
+        return False
+    if "pl" in layouts and _is_polish_text(trimmed, layouts):
+        return False
+    src = detect_source_layout(trimmed, layouts)
+    if src is None:
+        return False
+    target = next((l for l in layouts if l != src), None)
+    if target is None:
+        return False
+    conv = convert(trimmed, src, target)
+    if conv is None or conv == trimmed:
+        return False
+    if trimmed.isascii():
+        return not _has_vowel(trimmed, _LATIN_VOWELS) and _has_vowel(conv, _CYRILLIC_VOWELS)
+    return not _has_vowel(trimmed, _CYRILLIC_VOWELS) and _has_vowel(conv, _LATIN_VOWELS)
 
 
 def _tokenize(text: str) -> list[str]:

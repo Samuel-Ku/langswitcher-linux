@@ -74,15 +74,19 @@ AutoConvert(text) {
     return EnToUkWord(text)
 }
 
-LooksWrong(word) {
-    if (word = "" || HasPolish(word))
+; Conservative check for AUTO mode only. The plain macOS heuristic flags every
+; Latin word that maps to Cyrillic, so auto-converting after Space with it would
+; rewrite ordinary English. Auto requires: no vowel in the current script AND a
+; vowel in the converted script (single alphabetic word, length >= 3).
+LooksWrongAuto(word) {
+    if (StrLen(word) < 3 || !RegExMatch(word, "^[\pL]+$") || HasPolish(word))
         return false
     if HasCyrillic(word) {
         back := UkToEnWord(word)
-        return !RegExMatch(back, "[^\x{00}-\x{7F}]")
+        return (!RegExMatch(word, "[аеєиіїоуюяАЕЄИІЇОУЮЯ]") && RegExMatch(back, "[aeiouyAEIOUY]")) ? true : false
     }
     fwd := EnToUkWord(word)
-    return RegExMatch(fwd, "[^\x{00}-\x{7F}]") ? true : false
+    return (!RegExMatch(word, "[aeiouyAEIOUY]") && RegExMatch(fwd, "[аеєиіїоуюяАЕЄИІЇОУЮЯ]")) ? true : false
 }
 
 ; ================= Clipboard helpers =================
@@ -116,7 +120,7 @@ OnWordEnd(hook) {
     endKey := hook.EndKey
     StartHook()
     global AutoEnabled
-    if (endKey = "{Space}" && AutoEnabled && LooksWrong(word)) {
+    if (endKey = "{Space}" && AutoEnabled && LooksWrongAuto(word)) {
         conv := AutoConvert(word)
         if (conv != "" && conv != word) {
             StopHook()

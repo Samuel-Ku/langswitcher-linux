@@ -75,6 +75,14 @@ Item {
     }
   }
 
+  // Single renderer for the last run, so the bar and the panel cannot drift.
+  // Empty when nothing has run yet; callers supply their own empty-state text.
+  function lastRunText() {
+    if (!root.lastRun) return ""
+    var when = Qt.formatTime(new Date(root.lastRun.at), "HH:mm:ss")
+    return root.lastRun.mode + (root.lastRun.ok ? " — converted" : " — no wrong layout found") + " (" + when + ")"
+  }
+
   Process {
     id: checkProc
     property string output: ""

@@ -45,10 +45,8 @@ Panel {
   }
 
   function lastRunText() {
-    var run = service ? service.lastRun : null;
-    if (!run) return "No conversions yet — select text and press SUPER+GRAVE";
-    var when = Qt.formatTime(new Date(run.at), "HH:mm:ss");
-    return run.mode + (run.ok ? " — converted" : " — no wrong layout found") + " (" + when + ")";
+    if (!service || !service.lastRun) return "No conversions yet — select text and press SUPER+GRAVE";
+    return service.lastRunText();
   }
 
   component SectionTitle: Text {

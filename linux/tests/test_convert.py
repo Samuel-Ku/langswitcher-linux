@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Port self-tests: conversion core (lib/). Run: python3 tests/test_convert.py"""
+import filecmp
 import os
 import sys
 
@@ -10,6 +11,7 @@ from langswitcher import (  # noqa: E402
     convert_greedy,
     convert_selected,
     looks_like_wrong_layout,
+    looks_like_wrong_layout_strict,
 )
 
 L = ["en", "uk", "pl"]
@@ -35,6 +37,29 @@ check("polish untouched", convert_selected("Zażółć gęślą jaźń", L), Non
 check("polish word untouched", convert_selected("gęślą", L), None)
 check("wrong-layout en word", looks_like_wrong_layout("ghbdsn", L), True)
 check("polish not wrong", looks_like_wrong_layout("Zażółć", L), False)
+
+# Strict (auto) heuristic: must fire on vowel-less Latin gibberish, but NEVER on
+# ordinary English/Ukrainian words, or auto-mode would rewrite normal typing.
+check("auto: latin gibberish", looks_like_wrong_layout_strict("ghbdsn", L), True)
+check("auto: latin gibberish 2", looks_like_wrong_layout_strict("ghbdtn", L), True)
+check("auto: english hello", looks_like_wrong_layout_strict("hello", L), False)
+check("auto: english test", looks_like_wrong_layout_strict("test", L), False)
+check("auto: english the", looks_like_wrong_layout_strict("the", L), False)
+check("auto: english rhythm", looks_like_wrong_layout_strict("rhythm", L), False)
+check("auto: uk word", looks_like_wrong_layout_strict("привіт", L), False)
+check("auto: uk word 2", looks_like_wrong_layout_strict("робота", L), False)
+check("auto: polish", looks_like_wrong_layout_strict("Zażółć", L), False)
+check("auto: too short", looks_like_wrong_layout_strict("ab", L), False)
+check("auto: has digit", looks_like_wrong_layout_strict("ghb2", L), False)
+check("auto: no vowels but no target vowel", looks_like_wrong_layout_strict("hmm", L), False)
+
+# The core is duplicated into the plugin bundle on purpose; guard against drift.
+_here = os.path.join(os.path.dirname(__file__), "..", "lib", "langswitcher.py")
+_twin = os.path.join(os.path.dirname(__file__), "..", "..", "omarchy-plugin", "lib", "langswitcher.py")
+if os.path.exists(_twin):
+    check("lib copies identical", filecmp.cmp(_here, _twin, shallow=False), True)
+else:
+    print("skip: lib copies identical (twin not present in this deployment)")
 
 if fails:
     print("\nFAILURES:")

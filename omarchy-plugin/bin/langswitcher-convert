@@ -97,17 +97,12 @@ if [[ -z "$TEXT" ]]; then
   exit 2
 fi
 
-if [[ "$MODE" == "selection" ]]; then
-  CONVERTED="$(python3 "$CONVERTER" --layouts "$LAYOUTS" --mode selection "$TEXT" 2>/dev/null)" || {
-    notify-send "LangSwitcher" "Не схоже на неправильну розкладку" 2>/dev/null || true
-    exit 2
-  }
-else
-  CONVERTED="$(python3 "$CONVERTER" --layouts "$LAYOUTS" --mode greedy "$TEXT" 2>/dev/null)" || {
-    notify-send "LangSwitcher" "Не схоже на неправильну розкладку" 2>/dev/null || true
-    exit 2
-  }
-fi
+PYMODE="$MODE"
+[[ "$MODE" == "selection" ]] || PYMODE="greedy"
+CONVERTED="$(python3 "$CONVERTER" --layouts "$LAYOUTS" --mode "$PYMODE" "$TEXT" 2>/dev/null)" || {
+  notify-send "LangSwitcher" "Не схоже на неправильну розкладку" 2>/dev/null || true
+  exit 2
+}
 
 if [[ -z "$CONVERTED" || "$CONVERTED" == "$TEXT" ]]; then
   exit 2

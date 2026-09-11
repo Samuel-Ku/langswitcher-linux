@@ -58,8 +58,9 @@ python3 tests/test_convert.py                                  # self-tests
 
 ## Layouts
 
-Maps are ported 1:1 from the original (`en/us, uk/ua, ru, de, fr, es` all
-present in `lib/langswitcher.py`; Russian is kept but not in the defaults).
+Maps are ported 1:1 from the original, but the core ships exactly the three
+layouts this project needs: `en`, `uk`, `pl` (`en/us` and `uk/ua` are aliases).
+Russian and the other originals are intentionally absent.
 
 - Polish (`pl`, programmer's) is physically identical to US QWERTY, so there
   is no `en↔pl` wrong-layout case — and text with Polish diacritics

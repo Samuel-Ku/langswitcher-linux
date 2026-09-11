@@ -38,10 +38,7 @@ BarWidget {
     var lines = ["LangSwitcher (" + service.layouts + ")",
       "SUPER+GRAVE converts selection",
       "SUPER+SHIFT+GRAVE converts line"];
-    if (root.lastRun) {
-      var when = Qt.formatTime(new Date(root.lastRun.at), "HH:mm:ss");
-      lines.push("Last run: " + root.lastRun.mode + (root.lastRun.ok ? " — converted" : " — no wrong layout") + " (" + when + ")");
-    }
+    if (root.lastRun) lines.push("Last run: " + service.lastRunText());
     return lines.join("\n");
   }
 
