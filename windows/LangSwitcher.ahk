@@ -34,34 +34,92 @@ IsLetter(c) => RegExMatch(c, "\pL")
 HasCyrillic(text) => RegExMatch(text, "[\x{0400}-\x{04FF}]")
 HasPolish(text) => RegExMatch(text, "[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]")
 
-EnToUkWord(text) {
+; ---- Polish ⌥-layer recovery (mirrors lib/langswitcher.py) -------------------
+; When Polish is typed while a Cyrillic layout is active, the diacritic chords
+; emit that layout's own ⌥-layer characters (ą=⌥+A -> ƒ, ś=⌥+S -> ы, ć=⌥+C -> ≠,
+; ż=⌥+Z -> ђ). These tables map them back by physical key ("ьƒлф" -> "mąka",
+; "сяуы≠" -> "cześć"). Keep identical to _POLISH_DIACRITIC_BASES / _UKRAINIAN_OPTION
+; in lib/langswitcher.py — tests/test_windows_parity.py guards the parity.
+PolBases   := "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ"
+PolBaseTo  := "acelnosxzACELNOSXZ"
+UkrOptKeys := "abcdefghijklmnopqrstuvwxyz"
+UkrOptVals := "ƒи≠ћќ÷©}ѕ°љ∆~™ў‘ј®ыёґµџ≈њђ"
+
+PolFold := Map()
+Loop Parse, PolBases
+    PolFold[A_LoopField] := SubStr(PolBaseTo, A_Index, 1)
+
+; Polish Pro ⌥ layer: base key -> diacritic (lowercase only).
+PolProOpt := Map()
+Loop Parse, PolBases {
+    d := A_LoopField
+    if (d = StrLower(d))
+        PolProOpt[SubStr(PolBaseTo, A_Index, 1)] := d
+}
+
+UkrOpt := Map()
+UkrOptRev := Map()
+Loop Parse, UkrOptKeys {
+    k := A_LoopField
+    v := SubStr(UkrOptVals, A_Index, 1)
+    UkrOpt[k] := v
+    if !UkrOptRev.Has(v)
+        UkrOptRev[v] := k
+}
+
+; Target-layout base character for a physical QWERTY key. Only "uk" changes the
+; base layer; en and pl are physically QWERTY (identity).
+TargetBase(key, toLang) {
     global EnToUk
+    if (toLang = "uk")
+        return EnToUk.Has(key) ? EnToUk[key] : ""
+    return key
+}
+
+TargetBaseHas(key, toLang) {
+    global EnToUk
+    return (toLang = "uk") ? EnToUk.Has(key) : true
+}
+
+; Core conversion mirroring langswitcher.py convert(): base map, then Polish
+; diacritic fold (source pl), then ⌥-layer recovery. `core` is alphanumeric-only.
+CoreConvert(core, fromLang, toLang) {
+    global EnToUk, UkToEn, UkrOptRev, PolFold, PolProOpt
     out := ""
-    Loop Parse, text {
-        c := A_LoopField
-        if EnToUk.Has(c) {
-            t := EnToUk[c]
-            out .= (!IsLetter(c) && !IsLetter(t)) ? c : t
+    Loop Parse, core {
+        ch := A_LoopField
+        if (fromLang = "uk")
+            key := UkToEn.Has(ch) ? UkToEn[ch] : ""
+        else
+            key := EnToUk.Has(ch) ? ch : ""
+        if (key != "" && TargetBaseHas(key, toLang)) {
+            t := TargetBase(key, toLang)
+            out .= (!IsLetter(ch) && !IsLetter(t)) ? ch : t
+        } else if (fromLang = "pl" && PolFold.Has(ch) && TargetBaseHas(PolFold[ch], toLang)) {
+            out .= TargetBase(PolFold[ch], toLang)
+        } else if (fromLang = "uk" && UkrOptRev.Has(ch)) {
+            k2 := UkrOptRev[ch]
+            if (toLang = "pl" && PolProOpt.Has(k2))
+                out .= PolProOpt[k2]
+            else
+                out .= TargetBase(k2, toLang)
         } else {
-            out .= c
+            out .= ch
         }
     }
     return out
 }
 
-UkToEnWord(text) {
-    global UkToEn
-    out := ""
-    Loop Parse, text {
+; True when the core carries a Ukrainian ⌥-layer artifact that is NOT also a
+; base-layer letter (e.g. ƒ ы ≠) — i.e. the user typed Polish diacritic chords.
+HasDistinctiveUkrOpt(core) {
+    global UkrOptRev, UkToEn
+    Loop Parse, core {
         c := A_LoopField
-        if UkToEn.Has(c) {
-            t := UkToEn[c]
-            out .= (!IsLetter(c) && !IsLetter(t)) ? c : t
-        } else {
-            out .= c
-        }
+        if (UkrOptRev.Has(c) && !UkToEn.Has(c))
+            return true
     }
-    return out
+    return false
 }
 
 ; Split leading/trailing non-alphanumerics from the core, so sentence-ending
@@ -87,9 +145,11 @@ AutoConvert(text) {
     SplitAffixes(text, &lead, &core, &trail)
     if (core = "")
         return ""
-    if HasCyrillic(core)
-        return lead . UkToEnWord(core) . trail
-    return lead . EnToUkWord(core) . trail
+    if HasCyrillic(core) {
+        toLang := HasDistinctiveUkrOpt(core) ? "pl" : "en"
+        return lead . CoreConvert(core, "uk", toLang) . trail
+    }
+    return lead . CoreConvert(core, "en", "uk") . trail
 }
 
 ; Conservative check for AUTO mode only. The plain macOS heuristic flags every
@@ -104,10 +164,10 @@ LooksWrongAuto(word) {
     if (StrLen(core) < 3 || !RegExMatch(core, "^[\pL]+$") || HasPolish(word))
         return false
     if HasCyrillic(core) {
-        back := UkToEnWord(core)
+        back := CoreConvert(core, "uk", "en")
         return (!RegExMatch(core, "[аеєиіїоуюяАЕЄИІЇОУЮЯ]") && RegExMatch(back, "[aeiouyAEIOUY]")) ? true : false
     }
-    fwd := EnToUkWord(core)
+    fwd := CoreConvert(core, "en", "uk")
     return (!RegExMatch(core, "[aeiouyAEIOUY]") && RegExMatch(fwd, "[аеєиіїоуюяАЕЄИІЇОУЮЯ]")) ? true : false
 }
 
