@@ -64,14 +64,32 @@ UkToEnWord(text) {
     return out
 }
 
+; Split leading/trailing non-alphanumerics from the core, so sentence-ending
+; punctuation is kept ("ghbdsn." -> core "ghbdsn", trail "."). Empty core when
+; there is nothing alphanumeric to convert.
+SplitAffixes(text, &lead, &core, &trail) {
+    if RegExMatch(text, "^([^\pL\pN]*)([\pL\pN]+)([^\pL\pN]*)$", &m) {
+        lead := m[1]
+        core := m[2]
+        trail := m[3]
+    } else {
+        lead := "", core := "", trail := ""
+    }
+    return core
+}
+
 ; Direction by content. Polish diacritics = definitely Polish intent, never touch.
 ; (Polish programmer's layout is physically US QWERTY, so en<->pl has no wrong-layout case.)
+; Only the alphanumeric core is mapped; leading/trailing punctuation is preserved.
 AutoConvert(text) {
     if (text = "" || HasPolish(text))
         return ""
-    if HasCyrillic(text)
-        return UkToEnWord(text)
-    return EnToUkWord(text)
+    SplitAffixes(text, &lead, &core, &trail)
+    if (core = "")
+        return ""
+    if HasCyrillic(core)
+        return lead . UkToEnWord(core) . trail
+    return lead . EnToUkWord(core) . trail
 }
 
 ; Conservative check for AUTO mode only. The plain macOS heuristic flags every
@@ -79,17 +97,18 @@ AutoConvert(text) {
 ; rewrite ordinary English. Auto requires: no vowel in the current script AND a
 ; vowel in the converted script (single alphabetic word, length >= 3).
 ; Mirrors looks_like_wrong_layout_strict() in lib/langswitcher.py — keep these
-; examples true on BOTH sides: ghbdsn/ghbdtn -> true; hello/test/the/rhythm,
-; any Polish-diacritic word, anything shorter than 3 or with a digit -> false.
+; examples true on BOTH sides: ghbdsn/ghbdtn/ghbdsn. -> true; hello/test/the/
+; rhythm, any Polish-diacritic word, anything shorter than 3 or with a digit -> false.
 LooksWrongAuto(word) {
-    if (StrLen(word) < 3 || !RegExMatch(word, "^[\pL]+$") || HasPolish(word))
+    SplitAffixes(word, &lead, &core, &trail)
+    if (StrLen(core) < 3 || !RegExMatch(core, "^[\pL]+$") || HasPolish(word))
         return false
-    if HasCyrillic(word) {
-        back := UkToEnWord(word)
-        return (!RegExMatch(word, "[аеєиіїоуюяАЕЄИІЇОУЮЯ]") && RegExMatch(back, "[aeiouyAEIOUY]")) ? true : false
+    if HasCyrillic(core) {
+        back := UkToEnWord(core)
+        return (!RegExMatch(core, "[аеєиіїоуюяАЕЄИІЇОУЮЯ]") && RegExMatch(back, "[aeiouyAEIOUY]")) ? true : false
     }
-    fwd := EnToUkWord(word)
-    return (!RegExMatch(word, "[aeiouyAEIOUY]") && RegExMatch(fwd, "[аеєиіїоуюяАЕЄИІЇОУЮЯ]")) ? true : false
+    fwd := EnToUkWord(core)
+    return (!RegExMatch(core, "[aeiouyAEIOUY]") && RegExMatch(fwd, "[аеєиіїоуюяАЕЄИІЇОУЮЯ]")) ? true : false
 }
 
 ; ================= Clipboard helpers =================

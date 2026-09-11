@@ -100,22 +100,44 @@ def detect_source_layout(text: str, candidates: list[str]) -> str | None:
     return best
 
 
+def _split_affixes(text: str) -> tuple[str, str, str]:
+    """Split leading/trailing non-alphanumerics from the core.
+
+    "ghbdsn." -> ("", "ghbdsn", "."); "(Руддщ)" -> ("(", "Руддщ", ")").
+    Punctuation a user typed at a word boundary is theirs to keep — it must not
+    be run through the layout map (where '.' would become 'ю', ',' -> 'б').
+    """
+    i, j = 0, len(text)
+    while i < j and not (text[i].isalpha() or text[i].isdigit()):
+        i += 1
+    while j > i and not (text[j - 1].isalpha() or text[j - 1].isdigit()):
+        j -= 1
+    return text[:i], text[i:j], text[j:]
+
+
 def convert_selected(text: str, layouts: list[str]) -> tuple[str, str] | None:
-    """Порт convertSelectedTextWithInfo. Повертає (конвертований, target_layout)."""
+    """Порт convertSelectedTextWithInfo. Повертає (конвертований, target_layout).
+
+    Convention applies only to the alphanumeric core; leading/trailing punctuation
+    is preserved verbatim so "ghbdsn." -> "привіт.", not "привітю".
+    """
     if len(layouts) < 2:
         return None
     if _is_polish_text(text):
         return None
-    src = detect_source_layout(text, layouts)
+    lead, core, trail = _split_affixes(text)
+    if not core:
+        return None
+    src = detect_source_layout(core, layouts)
     if src is None:
         return None
     target = next((l for l in layouts if l != src), None)
     if target is None:
         target = layouts[0]
-    res = convert(text, src, target)
+    res = convert(core, src, target)
     if res is None:
         return None
-    return res, target
+    return lead + res + trail, target
 
 
 def looks_like_wrong_layout(text: str, layouts: list[str]) -> bool:
@@ -168,21 +190,24 @@ def looks_like_wrong_layout_strict(text: str, layouts: list[str], min_len: int =
     vowel) and plausible in the target script (has a vowel). "ghbdsn" has no
     Latin vowel and maps to "привіт" (has Cyrillic vowels) -> convert. "hello"
     already has vowels -> leave alone. Polish diacritics never convert.
+
+    Leading/trailing punctuation is ignored for the test, so a sentence-ending
+    "ghbdsn." still converts (and the "." is preserved).
     """
-    trimmed = text.strip()
-    if len(trimmed) < min_len or not trimmed.isalpha():
+    _, core, _ = _split_affixes(text.strip())
+    if len(core) < min_len or not core.isalpha():
         return False
-    if _is_polish_text(trimmed):
+    if _is_polish_text(text):
         return False
-    resolved = convert_selected(trimmed, layouts)
+    resolved = convert_selected(core, layouts)
     if resolved is None:
         return False
     conv, _ = resolved
-    if conv == trimmed:
+    if conv == core:
         return False
-    if trimmed.isascii():
-        return not _has_vowel(trimmed, _LATIN_VOWELS) and _has_vowel(conv, _CYRILLIC_VOWELS)
-    return not _has_vowel(trimmed, _CYRILLIC_VOWELS) and _has_vowel(conv, _LATIN_VOWELS)
+    if core.isascii():
+        return not _has_vowel(core, _LATIN_VOWELS) and _has_vowel(conv, _CYRILLIC_VOWELS)
+    return not _has_vowel(core, _CYRILLIC_VOWELS) and _has_vowel(conv, _LATIN_VOWELS)
 
 
 def _tokenize(text: str) -> list[str]:

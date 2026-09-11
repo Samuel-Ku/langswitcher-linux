@@ -38,6 +38,10 @@ check("polish untouched", convert_selected("Zażółć gęślą jaźń", L), Non
 check("polish word untouched", convert_selected("gęślą", L), None)
 check("wrong-layout en word", looks_like_wrong_layout("ghbdsn", L), True)
 check("polish not wrong", looks_like_wrong_layout("Zażółć", L), False)
+check("punct: trailing period kept", convert_selected("ghbdsn.", L), ("привіт.", "uk"))
+check("punct: trailing comma kept", convert_selected("ghbdsn,", L), ("привіт,", "uk"))
+check("punct: surrounded kept", convert_selected("(Руддщ)", L), ("(Hello)", "en"))
+check("punct: quotes kept", convert_selected('"ghbdsn"', L), ('"привіт"', "uk"))
 
 # Strict (auto) heuristic: must fire on vowel-less Latin gibberish, but NEVER on
 # ordinary English/Ukrainian words, or auto-mode would rewrite normal typing.
@@ -53,6 +57,10 @@ check("auto: polish", looks_like_wrong_layout_strict("Zażółć", L), False)
 check("auto: too short", looks_like_wrong_layout_strict("ab", L), False)
 check("auto: has digit", looks_like_wrong_layout_strict("ghb2", L), False)
 check("auto: no vowels but no target vowel", looks_like_wrong_layout_strict("hmm", L), False)
+check("punct: strict with period", looks_like_wrong_layout_strict("ghbdsn.", L), True)
+check("punct: strict with comma", looks_like_wrong_layout_strict("ghbdsn,", L), True)
+check("punct: strict english period", looks_like_wrong_layout_strict("hello.", L), False)
+check("punct: strict only symbols", looks_like_wrong_layout_strict("...", L), False)
 
 # The core is duplicated into the plugin bundle on purpose; guard against drift.
 _here = os.path.join(os.path.dirname(__file__), "..", "lib", "langswitcher.py")
@@ -74,6 +82,7 @@ def run_auto(word):
 
 check("auto CLI gibberish", run_auto("ghbdsn"), (0, "привіт"))
 check("auto CLI english", run_auto("hello"), (2, ""))
+check("auto CLI trailing period", run_auto("ghbdsn."), (0, "привіт."))
 
 if fails:
     print("\nFAILURES:")
