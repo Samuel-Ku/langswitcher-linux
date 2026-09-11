@@ -56,12 +56,60 @@ def _is_polish_text(text: str) -> bool:
     return any(c in _PL_DIACRITICS for c in text)
 
 
+# ---- Option (⌥) layer: Polish <-> Cyrillic recovery -------------------------
+# Ported 1:1 from macOS LayoutMapper.swift. When Polish text is typed while a
+# Cyrillic layout is active, the Polish diacritic chords are ⌥-chords: on
+# Ukrainian-PC they emit that layout's OWN ⌥-layer characters instead (⌥+S = ы,
+# ⌥+A = ƒ, ⌥+C = ≠, ...). A base-layer-only conversion leaves those unmapped
+# ("mąka" would become "mƒkф"). Mapping the ⌥ characters by physical key closes
+# the gap: ƒ (⌥+A on Ukrainian-PC) -> a -> ą (⌥+A on Polish Pro).
+#
+# Source-side only: a Polish diacritic folds to its physical base key; the
+# reverse (plain base letter -> diacritic) is intentionally NOT synthesised.
+_POLISH_DIACRITIC_BASES = {
+    "ą": "a", "ć": "c", "ę": "e", "ł": "l", "ń": "n",
+    "ó": "o", "ś": "s", "ź": "x", "ż": "z",
+    "Ą": "A", "Ć": "C", "Ę": "E", "Ł": "L", "Ń": "N",
+    "Ó": "O", "Ś": "S", "Ź": "X", "Ż": "Z",
+}
+
+# Polish Pro ⌥ layer, inverted from the fold so both share one source of truth.
+_POLISH_PRO_OPTION = {
+    base: diacritic
+    for diacritic, base in _POLISH_DIACRITIC_BASES.items()
+    if diacritic.islower()
+}
+
+# Ukrainian-PC ⌥ layer (letter keys a-z, real extraction).
+_UKRAINIAN_OPTION = {
+    "a": "ƒ", "b": "и", "c": "≠", "d": "ћ", "e": "ќ", "f": "÷", "g": "©",
+    "h": "}", "i": "ѕ", "j": "°", "k": "љ", "l": "∆", "m": "~", "n": "™",
+    "o": "ў", "p": "‘", "q": "ј", "r": "®", "s": "ы", "t": "ё", "u": "ґ",
+    "v": "µ", "w": "џ", "x": "≈", "y": "њ", "z": "ђ",
+}
+
+_OPTION_MAPS = {
+    "uk": _UKRAINIAN_OPTION,
+    "ua": _UKRAINIAN_OPTION,
+    "pl": _POLISH_PRO_OPTION,
+}
+
+# Every value any ⌥ map can emit. These are layout artifacts, not punctuation:
+# the boundary splitter must never treat them as user-typed punctuation.
+_OPTION_ARTIFACTS = set().union(*(m.values() for m in _OPTION_MAPS.values()))
+
+
+def _option_map(layout_id: str) -> dict:
+    return _OPTION_MAPS.get(layout_id, {})
+
+
 def _is_ascii(c: str) -> bool:
     return ord(c) < 128
 
 
 def convert(text: str, from_layout: str, to_layout: str) -> str | None:
-    """Покроковий порт LayoutMapper.convert (включно з punctuation preservation)."""
+    """Порт LayoutMapper.convert: фізпозиції + punctuation preservation +
+    Polish ⌥-layer/diacritic recovery."""
     src = MAPS.get(from_layout)
     dst = MAPS.get(to_layout)
     if src is None or dst is None:
@@ -69,16 +117,32 @@ def convert(text: str, from_layout: str, to_layout: str) -> str | None:
     reverse = {}
     for k, v in src.items():
         reverse.setdefault(v, k)
+    is_polish_source = "pl" in from_layout or "polish" in from_layout
+    source_option = _option_map(from_layout)
+    reverse_option = {}
+    for k, v in source_option.items():
+        reverse_option.setdefault(v, k)
+    target_option = _option_map(to_layout)
+
     out = []
     for ch in text:
         physical = reverse.get(ch)
-        target = dst.get(physical) if physical is not None else None
-        if physical is not None and target is not None:
+        if physical is not None and physical in dst:
+            target = dst[physical]
             # пунктуація: non-letter -> non-letter лишаємо як є
-            if not ch.isalpha() and not target.isalpha():
-                out.append(ch)
+            out.append(ch if (not ch.isalpha() and not target.isalpha()) else target)
+        elif is_polish_source and ch in _POLISH_DIACRITIC_BASES \
+                and _POLISH_DIACRITIC_BASES[ch] in dst:
+            out.append(dst[_POLISH_DIACRITIC_BASES[ch]])
+        elif ch in reverse_option:
+            key = reverse_option[ch]
+            target_option_char = target_option.get(key)
+            if target_option_char is not None and target_option_char.isalpha():
+                out.append(target_option_char)
+            elif key in dst:
+                out.append(dst[key])
             else:
-                out.append(target)
+                out.append(ch)
         else:
             out.append(ch)
     return "".join(out)
@@ -100,17 +164,24 @@ def detect_source_layout(text: str, candidates: list[str]) -> str | None:
     return best
 
 
+def _is_boundary_affix(c: str) -> bool:
+    return not (c.isalpha() or c.isdigit()) and c not in _OPTION_ARTIFACTS
+
+
 def _split_affixes(text: str) -> tuple[str, str, str]:
     """Split leading/trailing non-alphanumerics from the core.
 
     "ghbdsn." -> ("", "ghbdsn", "."); "(Руддщ)" -> ("(", "Руддщ", ")").
     Punctuation a user typed at a word boundary is theirs to keep — it must not
     be run through the layout map (where '.' would become 'ю', ',' -> 'б').
+
+    ⌥-layer artifacts (© ≠ ∆ ...) are NOT punctuation even when they look like
+    symbols, so they stay in the core and get recovered by convert().
     """
     i, j = 0, len(text)
-    while i < j and not (text[i].isalpha() or text[i].isdigit()):
+    while i < j and _is_boundary_affix(text[i]):
         i += 1
-    while j > i and not (text[j - 1].isalpha() or text[j - 1].isdigit()):
+    while j > i and _is_boundary_affix(text[j - 1]):
         j -= 1
     return text[:i], text[i:j], text[j:]
 
@@ -131,7 +202,18 @@ def convert_selected(text: str, layouts: list[str]) -> tuple[str, str] | None:
     src = detect_source_layout(core, layouts)
     if src is None:
         return None
-    target = next((l for l in layouts if l != src), None)
+    # If the text carries the source layout's ⌥-layer artifacts, the user typed
+    # diacritic chords — they intended the layout that owns those chords (Polish),
+    # so prefer a target with an ⌥ map over the plain "first other" layout.
+    # Only *distinctive* artifacts count: some ⌥ values (e.g. "и") are also
+    # ordinary base-layer letters and must not trigger this.
+    base_values = set(MAPS.get(src, {}).values())
+    distinctive = set(_option_map(src).values()) - base_values
+    target = None
+    if any(c in distinctive for c in core):
+        target = next((l for l in layouts if l != src and _option_map(l)), None)
+    if target is None:
+        target = next((l for l in layouts if l != src), None)
     if target is None:
         target = layouts[0]
     res = convert(core, src, target)

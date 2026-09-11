@@ -66,6 +66,10 @@ Russian and the other originals are intentionally absent.
   is no `en↔pl` wrong-layout case — and text with Polish diacritics
   (`ą ć ę ł ń ó ś ź ż`) is **never touched**, in every mode.
 - Real conversion happens on the `en↔uk` pair with auto-detection.
+- **Polish ⌥-layer recovery (as on macOS):** typing Polish while a Cyrillic
+  layout is active emits that layout's ⌥ symbols (`ą`=⌥+A→`ƒ`, `ś`=⌥+S→`ы`,
+  `ć`=⌥+C→`≠`). The converter maps them back by physical key: `ьƒлф` → `mąka`,
+  `сяуы≠` → `cześć`. When such artifacts are present, `pl` is picked as target.
 
 ## Files
 

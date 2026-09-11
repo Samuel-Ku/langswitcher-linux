@@ -43,6 +43,15 @@ check("punct: trailing comma kept", convert_selected("ghbdsn,", L), ("приві
 check("punct: surrounded kept", convert_selected("(Руддщ)", L), ("(Hello)", "en"))
 check("punct: quotes kept", convert_selected('"ghbdsn"', L), ('"привіт"', "uk"))
 
+# Option-layer (⌥) recovery, ported from macOS: Polish typed while a Cyrillic
+# layout is active (ą=⌥+A -> ƒ on Ukrainian-PC, ś=⌥+S -> ы, ć=⌥+C -> ≠, ...).
+check("opt: canonical uk->pl", convert("ьƒлф", "uk", "pl"), "mąka")
+check("opt: selection recovers pl", convert_selected("ьƒлф", L), ("mąka", "pl"))
+check("opt: cześć via ⌥+C", convert_selected("сяуы≠", L), ("cześć", "pl"))
+check("opt: Polish fold pl->uk", convert("mąka", "pl", "uk"), "ьфлф")
+check("opt: guard still skips real Polish", convert_selected("mąka", L), None)
+check("opt: uk->en unaffected by opt rule", convert_selected("привіт", L), ("ghbdsn", "en"))
+
 # Strict (auto) heuristic: must fire on vowel-less Latin gibberish, but NEVER on
 # ordinary English/Ukrainian words, or auto-mode would rewrite normal typing.
 check("auto: latin gibberish", looks_like_wrong_layout_strict("ghbdsn", L), True)
