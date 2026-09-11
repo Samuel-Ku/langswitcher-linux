@@ -57,12 +57,11 @@ Loop Parse, PolBases {
         PolProOpt[SubStr(PolBaseTo, A_Index, 1)] := d
 }
 
-UkrOpt := Map()
+; Reverse ⌥ map: artifact -> physical key (only this direction is used).
 UkrOptRev := Map()
 Loop Parse, UkrOptKeys {
     k := A_LoopField
     v := SubStr(UkrOptVals, A_Index, 1)
-    UkrOpt[k] := v
     if !UkrOptRev.Has(v)
         UkrOptRev[v] := k
 }
@@ -122,17 +121,31 @@ HasDistinctiveUkrOpt(core) {
     return false
 }
 
-; Split leading/trailing non-alphanumerics from the core, so sentence-ending
-; punctuation is kept ("ghbdsn." -> core "ghbdsn", trail "."). Empty core when
-; there is nothing alphanumeric to convert.
+; A boundary char is leading/trailing "punctuation" only if it is neither a
+; letter/digit NOR a layout ⌥ artifact: symbols like ≠ ÷ © are artifacts typed
+; by a diacritic chord, not user punctuation, and must stay in the core so
+; CoreConvert can recover them ("сяуы≠" -> "cześć").
+IsCoreChar(c) {
+    global UkrOptVals
+    return RegExMatch(c, "[\pL\pN]") || InStr(UkrOptVals, c)
+}
+
+; Split leading/trailing non-core chars, so sentence-ending punctuation is kept
+; ("ghbdsn." -> core "ghbdsn", trail "."). Empty core when nothing to convert.
 SplitAffixes(text, &lead, &core, &trail) {
-    if RegExMatch(text, "^([^\pL\pN]*)([\pL\pN]+)([^\pL\pN]*)$", &m) {
-        lead := m[1]
-        core := m[2]
-        trail := m[3]
-    } else {
-        lead := "", core := "", trail := ""
+    i := 1
+    j := StrLen(text)
+    while (i <= j && !IsCoreChar(SubStr(text, i, 1)))
+        i += 1
+    while (j >= i && !IsCoreChar(SubStr(text, j, 1)))
+        j -= 1
+    if (i > j) {
+        lead := text, core := "", trail := ""
+        return core
     }
+    lead := SubStr(text, 1, i - 1)
+    core := SubStr(text, i, j - i + 1)
+    trail := SubStr(text, j + 1)
     return core
 }
 
