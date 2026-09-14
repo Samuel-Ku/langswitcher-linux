@@ -22,11 +22,11 @@ def parse_args():
     p.add_argument("--to", dest="to_layout", default=None, help="явна target-розкладка")
     p.add_argument("--mode", choices=["selection", "greedy", "last-word", "auto"],
                    default="selection",
-                   help="greedy = Smart Conversion (Greedy Line), auto = only convert a word "
-                        "that clearly looks wrong-layout (Punto-style, used by the Windows hook)")
+                   help="greedy = convert the line left of the cursor; auto = convert only "
+                        "a word that clearly looks wrong-layout (used by the auto hook)")
     p.add_argument("--switch", choices=["never", "always", "if-converted"], default="never",
-                   help="switch the OS active layout to the conversion target after converting "
-                        "(default never; macOS defaults to always, the workers pass that)")
+                   help="switch the active layout to the conversion target after converting "
+                        "(default never; the workers pass their own value)")
     return p.parse_args()
 
 
@@ -66,7 +66,7 @@ def main() -> int:
 
     if a.mode in ("greedy", "last-word"):
         if a.mode == "last-word":
-            # останнє слово — як режим Last Word у macOS-версії
+            # останнє слово — режим Last Word
             parts = text.rsplit(" ", 1)
             if len(parts) == 2:
                 head, tail = parts

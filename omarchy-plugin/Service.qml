@@ -79,8 +79,9 @@ Item {
   // Empty when nothing has run yet; callers supply their own empty-state text.
   function lastRunText() {
     if (!root.lastRun) return ""
-    var when = Qt.formatTime(new Date(root.lastRun.at), "HH:mm:ss")
-    return root.lastRun.mode + (root.lastRun.ok ? " — converted" : " — no wrong layout found") + " (" + when + ")"
+    var when = Qt.formatTime(new Date(root.lastRun.at), "HH:mm")
+    var what = root.lastRun.ok ? "converted" : "no change"
+    return root.lastRun.mode + " · " + what + " · " + when
   }
 
   Process {

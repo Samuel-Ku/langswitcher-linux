@@ -5,8 +5,14 @@ import qs.Commons
 
 // Bar widget: a keyboard glyph whose colour answers "can I convert?".
 // Accent = ready, amber = last run found no wrong layout, urgent = missing
-// dependencies. Left click opens the panel, middle click converts the current
-// selection immediately (same as the SUPER+GRAVE hotkey).
+// dependencies.
+//
+// Which button does what is a per-widget setting, so nobody has to accept this
+// plugin's idea of a left click:
+//   {"id": "stealth.langswitcher", "leftClick": "line", "rightClick": "panel"}
+//   omarchy bar set stealth.langswitcher leftClick line
+// Values: selection (default for left and middle), line, word, panel (default
+// for right). The worker's own mode names (greedy, last-word) are aliases.
 BarWidget {
   id: root
   moduleName: "stealth.langswitcher"
@@ -32,14 +38,83 @@ BarWidget {
       var miss = service.missing && service.missing.length > 0
         ? service.missing.join(", ")
         : "unknown";
-      return "LangSwitcher: missing dependencies\n" + miss
-        + "\nInstall: sudo pacman -S --needed wl-clipboard wtype";
+      return "LangSwitcher: missing " + miss
+        + "\nsudo pacman -S --needed wl-clipboard wtype";
     }
     var lines = ["LangSwitcher (" + service.layouts + ")",
-      "SUPER+GRAVE converts selection",
-      "SUPER+SHIFT+GRAVE converts line"];
-    if (root.lastRun) lines.push("Last run: " + service.lastRunText());
+      "Click: " + root.actionLabel(root.leftAction)];
+    if (root.middleAction !== root.leftAction)
+      lines.push("Middle: " + root.actionLabel(root.middleAction));
+    lines.push("Right: " + root.actionLabel(root.rightAction));
+    lines.push("SUPER+GRAVE · SUPER+SHIFT+GRAVE");
+    if (root.lastRun) lines.push(service.lastRunText());
     return lines.join("\n");
+  }
+
+  // ---- click actions -------------------------------------------------------
+  // Resolved once per configuration change, not per click: the tooltip and the
+  // handlers then cannot disagree about what a button does.
+  readonly property string leftAction: root.actionFor(root.setting("leftClick", "selection"), "selection")
+  readonly property string middleAction: root.actionFor(root.setting("middleClick", "selection"), "selection")
+  readonly property string rightAction: root.actionFor(root.setting("rightClick", "panel"), "panel")
+
+  readonly property var actionLabels: ({
+    selection: "converts the selection",
+    line: "converts the line",
+    word: "converts the last word",
+    panel: "opens the panel"
+  })
+
+  function actionLabel(action) { return root.actionLabels[action] || action; }
+
+  function isClickAction(value) {
+    var v = String(value === undefined || value === null ? "" : value).toLowerCase();
+    return v === "selection" || v === "select"
+      || v === "line" || v === "greedy"
+      || v === "word" || v === "last-word" || v === "lastword"
+      || v === "panel" || v === "menu";
+  }
+
+  // One write path for the click mapping, used by the panel's dropdowns and by
+  // the setClickAction IPC. The local echo applies instantly (so the tooltip and
+  // the panel update on the click itself); shell.json is written through the
+  // shell's own API, which is what survives a restart.
+  function setClickAction(button, action) {
+    if (button !== "left" && button !== "middle" && button !== "right") return false
+    if (!root.isClickAction(action)) return false
+
+    var entry = { id: root.moduleName }
+    for (var key in root.settings) if (key !== "id") entry[key] = root.settings[key]
+    // Store the canonical name, so shell.json always carries what the code and
+    // the docs call it, even when the caller passed an alias.
+    entry[button + "Click"] = root.actionFor(action, "selection")
+    root.settings = entry
+
+    if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
+      root.bar.shell.updateEntryInline(root.moduleName, entry)
+    return true
+  }
+
+  // A mistyped value falls back to that button's default rather than leaving
+  // the click doing nothing.
+  function actionFor(value, fallback) {
+    var v = String(value === undefined || value === null ? "" : value).toLowerCase();
+    if (v === "selection" || v === "select") return "selection"
+    if (v === "line" || v === "greedy") return "line"
+    if (v === "word" || v === "last-word" || v === "lastword") return "word"
+    if (v === "panel" || v === "menu") return "panel"
+    return fallback;
+  }
+
+  // The panel is only opened explicitly: it is a keyboard-interactive layer
+  // surface, so when a button converts instead, nothing opens and the keys go
+  // straight to the app being edited.
+  function runAction(action) {
+    if (!root.service) return
+    if (action === "panel") { root.togglePanel(); return }
+    if (action === "line") { root.service.convert("greedy"); return }
+    if (action === "word") { root.service.convert("last-word"); return }
+    root.service.convert("selection");
   }
 
   // ---- Panel shape contract for the shell's summon/hide/toggle routing ----
@@ -110,6 +185,21 @@ BarWidget {
       return root.service.convert("last-word") ? "ok" : "busy";
     }
 
+    // What the three buttons will do, so a settings change can be checked
+    // without clicking: omarchy-shell stealth.langswitcher clickActions
+    function clickActions(): string {
+      return JSON.stringify({
+        left: root.leftAction,
+        middle: root.middleAction,
+        right: root.rightAction
+      });
+    }
+
+    // omarchy-shell stealth.langswitcher setClickAction left line
+    function setClickAction(button: string, action: string): string {
+      return root.setClickAction(button, action) ? "ok" : "failed";
+    }
+
     function open(): void { root.open(); }
     function close(): void { root.close(); }
     function show(): void { root.open(); }
@@ -126,11 +216,9 @@ BarWidget {
     foreground: root.statusColor
     tooltipText: root.tooltip
     onPressed: function(b) {
-      if (b === Qt.MiddleButton) {
-        if (root.service) root.service.convert("selection");
-        return;
-      }
-      root.togglePanel();
+      if (b === Qt.RightButton) root.runAction(root.rightAction);
+      else if (b === Qt.MiddleButton) root.runAction(root.middleAction);
+      else root.runAction(root.leftAction);
     }
   }
 }

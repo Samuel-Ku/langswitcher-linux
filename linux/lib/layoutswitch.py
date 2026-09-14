@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""Layout Switch mode — switch the OS active layout after a conversion.
+"""Layout Switch mode — switch the active layout after a conversion.
 
-macOS parity: LangSwitcher's `LayoutSwitchMode` (always / ifLastWordConverted /
-ifAnyWordConverted, default always) calls TISSelectInputSource so the next word
-is typed in the just-converted language. This module ports the decision and the
-Linux (Hyprland) action; the pure parts are unit-tested in test_layoutswitch.py.
-
-Only Hyprland is implemented; other compositors return False (no-op) rather than
-guess. Windows does its own switch in LangSwitcher.ahk.
+Once the text is converted, the next word should already be typed in the layout
+that was just converted to, so this module decides whether to switch (always /
+if-converted / never) and performs the switch on Linux. Only Hyprland is
+implemented; other compositors return False (no-op) rather than guess. The pure
+parts are unit-tested in test_layoutswitch.py.
 """
 import json
 import shutil
@@ -21,9 +19,8 @@ _MODE_IF_CONVERTED = "if-converted"
 
 
 def should_switch(mode: str, converted: bool) -> bool:
-    """macOS maps all three modes to the same outcome (conversionOccurred is
-    always true at the call sites); we keep `always` and `if-converted` plus an
-    explicit `never`."""
+    """`always` switches unconditionally, `if-converted` only when a conversion
+    happened, anything else never."""
     if mode == _MODE_ALWAYS:
         return True
     if mode == _MODE_IF_CONVERTED:
@@ -77,6 +74,28 @@ def switch_to(lang: str, devices: dict | None = None, runner=subprocess.run) -> 
         return False
     try:
         r = runner(["hyprctl", "switchxkblayout", keyboard["name"], str(index)],
+                   capture_output=True, text=True, timeout=3)
+        return getattr(r, "returncode", 0) == 0
+    except Exception:
+        return False
+
+
+def switch_everywhere(lang: str, devices: dict | None = None, runner=subprocess.run) -> bool:
+    """Switch *every* keyboard to `lang` — the Right-Alt binding's own call.
+
+    ``switch_to`` drives one device (the main keyboard), which is right for an
+    explicit user action but not for a background one: the device the compositor
+    calls "main" changes as virtual keyboards (fcitx5, wtype) appear and vanish,
+    and the keyboards are switched independently. A conversion must not leave a
+    second keyboard on the old layout, so automatic mode moves them all.
+    """
+    if devices is None:
+        devices = _hyprctl_devices()
+    index = index_for_lang(choose_keyboard(devices), lang)
+    if index is None:
+        return False
+    try:
+        r = runner(["hyprctl", "switchxkblayout", "all", str(index)],
                    capture_output=True, text=True, timeout=3)
         return getattr(r, "returncode", 0) == 0
     except Exception:

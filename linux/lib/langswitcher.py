@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-"""LangSwitcher core — Python port of the macOS Swift logic.
+"""LangSwitcher core — layout conversion for en, uk, pl.
 
-Original: https://github.com/Samuel-Ku/langSwitcher (fork of reg2005/langSwitcher)
-Ported 1:1 from:
-  - LayoutCharacterMap (KeyboardLayout.swift)
-  - LayoutMapper.convert / detectSourceLayout (LayoutMapper.swift)
-  - TextConverter.convertSelectedText / looksLikeWrongLayout /
-    findWrongLayoutBoundary / convertLineGreedy (TextConverter.swift)
-
-Only the layouts this project ships are kept: en, uk, pl (Russian is
-deliberately absent — it was never needed).
+Maps physical key positions between layouts, auto-detects which layout a piece
+of text was typed in, preserves the user's punctuation, and recovers Polish
+⌥-layer artifacts. Algorithm and layout maps follow LangSwitcher (MIT) — see
+LICENSE; only the layouts this project ships are kept (Russian is deliberately
+absent — it was never needed).
 
 This file is intentionally duplicated in the omarchy-plugin and linux bundles;
 keep both copies byte-identical.
@@ -57,12 +53,12 @@ def _is_polish_text(text: str) -> bool:
 
 
 # ---- Option (⌥) layer: Polish <-> Cyrillic recovery -------------------------
-# Ported 1:1 from macOS LayoutMapper.swift. When Polish text is typed while a
-# Cyrillic layout is active, the Polish diacritic chords are ⌥-chords: on
-# Ukrainian-PC they emit that layout's OWN ⌥-layer characters instead (⌥+S = ы,
-# ⌥+A = ƒ, ⌥+C = ≠, ...). A base-layer-only conversion leaves those unmapped
-# ("mąka" would become "mƒkф"). Mapping the ⌥ characters by physical key closes
-# the gap: ƒ (⌥+A on Ukrainian-PC) -> a -> ą (⌥+A on Polish Pro).
+# Polish text typed while a Cyrillic layout is active comes out as that layout's
+# own ⌥-layer characters: on Ukrainian-PC the diacritic chords are ⌥-chords, so
+# ⌥+S emits "ы", ⌥+A emits "ƒ", ⌥+C emits "≠". A base-layer-only conversion
+# leaves those unmapped ("mąka" would become "mƒkф"). Mapping the ⌥ characters
+# by physical key closes the gap: ƒ (⌥+A on Ukrainian-PC) -> a -> ą (⌥+A on
+# Polish Pro).
 #
 # Source-side only: a Polish diacritic folds to its physical base key; the
 # reverse (plain base letter -> diacritic) is intentionally NOT synthesised.
@@ -108,8 +104,8 @@ def _is_ascii(c: str) -> bool:
 
 
 def convert(text: str, from_layout: str, to_layout: str) -> str | None:
-    """Порт LayoutMapper.convert: фізпозиції + punctuation preservation +
-    Polish ⌥-layer/diacritic recovery."""
+    """Конвертація за фізпозиціями + збереження пунктуації +
+    відновлення польського ⌥-шару/діакритики."""
     src = MAPS.get(from_layout)
     dst = MAPS.get(to_layout)
     if src is None or dst is None:
@@ -149,7 +145,7 @@ def convert(text: str, from_layout: str, to_layout: str) -> str | None:
 
 
 def detect_source_layout(text: str, candidates: list[str]) -> str | None:
-    """Порт detectSourceLayout: чий набір символів покриває більше символів тексту."""
+    """Розкладка-кандидат, чий набір символів покриває більше символів тексту."""
     best = None
     best_score = 0
     for lid in candidates:
@@ -187,7 +183,7 @@ def _split_affixes(text: str) -> tuple[str, str, str]:
 
 
 def convert_selected(text: str, layouts: list[str]) -> tuple[str, str] | None:
-    """Порт convertSelectedTextWithInfo. Повертає (конвертований, target_layout).
+    """Повертає (конвертований текст, target_layout).
 
     Convention applies only to the alphanumeric core; leading/trailing punctuation
     is preserved verbatim so "ghbdsn." -> "привіт.", not "привітю".
@@ -223,7 +219,7 @@ def convert_selected(text: str, layouts: list[str]) -> tuple[str, str] | None:
 
 
 def looks_like_wrong_layout(text: str, layouts: list[str]) -> bool:
-    """Порт looksLikeWrongLayout: чи переключення скрипту після конвертації."""
+    """True, якщо конвертація перемикає скрипт тексту (латиниця <-> кирилиця)."""
     trimmed = text.strip()
     if not trimmed:
         return False
@@ -261,12 +257,12 @@ def _has_vowel(text: str, vowels: set) -> bool:
 
 
 def looks_like_wrong_layout_strict(text: str, layouts: list[str], min_len: int = 3) -> bool:
-    """Conservative check for AUTO modes (Punto-style split-word conversion).
+    """Консервативна перевірка для AUTO-режимів (конвертація після пробілу).
 
-    ``looks_like_wrong_layout`` (the faithful macOS port) returns True for *any*
-    Latin word that maps to Cyrillic, so it must only ever run on an explicit
-    user action. Auto-converting after Space needs a stricter signal, or every
-    ordinary English word would be rewritten.
+    ``looks_like_wrong_layout`` повертає True для *будь-якого* латинського слова,
+    що мапиться в кирилицю, тому він годиться лише для явної дії користувача.
+    Автоконвертація після пробілу потребує строгішого сигналу, інакше кожне
+    звичайне англійське слово переписувалося б.
 
     Rule: fire only when the word is implausible in its current script (no
     vowel) and plausible in the target script (has a vowel). "ghbdsn" has no
@@ -320,7 +316,7 @@ def _is_sep(tok: str) -> bool:
 
 
 def find_wrong_boundary(text: str, layouts: list[str]) -> tuple[str, str] | None:
-    """Порт findWrongLayoutBoundary (greedy two-pass, поріг 70%)."""
+    """Межа, з якої починається хвіст у неправильній розкладці (greedy two-pass, поріг 70%)."""
     if len(layouts) < 2:
         return None
     tokens = _tokenize(text)
@@ -358,7 +354,7 @@ def find_wrong_boundary(text: str, layouts: list[str]) -> tuple[str, str] | None
 
 
 def convert_greedy(text: str, layouts: list[str]) -> tuple[str, str] | None:
-    """Порт convertLineGreedyWithInfo."""
+    """Конвертує хвіст рядка, набраний у неправильній розкладці."""
     b = find_wrong_boundary(text, layouts)
     if b is None:
         return None

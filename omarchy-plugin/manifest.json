@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "stealth.langswitcher",
   "name": "LangSwitcher",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Stealth",
   "license": "MIT",
-  "description": "Port of macOS LangSwitcher: fix text typed in the wrong keyboard layout (EN/UK/PL) with a hotkey.",
+  "description": "Fix text typed in the wrong keyboard layout (EN/UK/PL) with a hotkey.",
   "kinds": ["service", "bar-widget"],
   "entryPoints": {
     "service": "Service.qml",
@@ -17,6 +17,37 @@
     "category": "Utilities",
     "aliases": ["langswitcher", "layout", "keyboard", "розкладка", "перемикач"],
     "allowMultiple": false,
-    "defaultSection": "right"
+    "defaultSection": "right",
+    "defaults": {
+      "leftClick": "selection",
+      "middleClick": "selection",
+      "rightClick": "panel"
+    },
+    "schema": [
+      {
+        "key": "leftClick",
+        "type": "enum",
+        "label": "Left click",
+        "options": ["selection", "line", "word", "panel"],
+        "defaultValue": "selection",
+        "description": "Convert the selected text, the line left of the cursor, the last word, or open the panel."
+      },
+      {
+        "key": "middleClick",
+        "type": "enum",
+        "label": "Middle click",
+        "options": ["selection", "line", "word", "panel"],
+        "defaultValue": "selection",
+        "description": "Same actions as the left click."
+      },
+      {
+        "key": "rightClick",
+        "type": "enum",
+        "label": "Right click",
+        "options": ["selection", "line", "word", "panel"],
+        "defaultValue": "panel",
+        "description": "Default opens the panel with all three actions and the dependency status."
+      }
+    ]
   }
 }

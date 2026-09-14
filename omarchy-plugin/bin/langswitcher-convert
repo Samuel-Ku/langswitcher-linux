@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # langswitcher-convert — Wayland worker for the stealth.langswitcher plugin.
-# macOS LangSwitcher (⇧⇧) equivalent for Hyprland: selected text -> hotkey ->
-# converted text pasted back. Python core (physical key positions,
-# auto-detect, greedy line, punctuation preservation) lives in ../lib/.
+# Select text -> press the hotkey -> the converted text is pasted back.
+# Python core (physical key positions, auto-detect, greedy line, punctuation
+# preservation) lives in ../lib/.
 #
 # Usage: langswitcher-convert [selection|greedy|last-word] [--layouts en,uk,pl]
 #        langswitcher-convert --check   (deps + self-test as JSON, for Service.qml)
@@ -66,30 +66,173 @@ ctrl_v() { wtype -M ctrl -k v -m ctrl 2>/dev/null; }
 sel_home() { wtype -M shift -k Home -m shift 2>/dev/null; sleep 0.08; }
 sel_word() { wtype -M ctrl -M shift -k Left -m shift -m ctrl 2>/dev/null; sleep 0.08; }
 
-TEXT=""
+# --- diagnostics -----------------------------------------------------------
+# One JSON record per run, metadata only — the clipboard text never enters it.
+# A single reproduction in a misbehaving app then answers what is otherwise
+# guesswork: which window it ran against, whether a panel was in the way, and
+# whether Ctrl+C actually refreshed the clipboard (a stale clipboard means the
+# app had no selection, so Ctrl+V inserts beside the original text instead of
+# replacing it — the "text doubled" report).
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/langswitcher"
+RUN_LOG="$STATE_DIR/last-run.json"
+START_MS="$(date +%s%3N)"
 
-# Select a range, copy it, read the clipboard. $1 is sel_home or sel_word.
-sel_and_copy() {
-  "$1"
+PANEL_AT_START=false
+PANEL_WAIT_MS=0
+SOURCE="none"
+COPY_CHANGED="null"
+VERIFY="skipped"
+WIN_AT_START=""
+WIN_AT_PASTE=""
+TEXT=""
+CONVERTED=""
+SAME="null"
+
+clip_hash() { paste_clip | sha256sum | cut -c1-12; }
+
+window_class() {
+  command -v hyprctl >/dev/null 2>&1 || return 0
+  hyprctl activewindow -j 2>/dev/null | python3 -c 'import json, re, sys
+try:
+    win = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(0)
+print(re.sub(r"[^A-Za-z0-9._+-]", "", str(win.get("class") or "")))' 2>/dev/null || true
+}
+
+write_run_log() {
+  local code=$?
+  mkdir -p "$STATE_DIR" 2>/dev/null
+  printf '{"ts": %s, "mode": "%s", "layouts": "%s", "panel_at_start": %s, "panel_close_ms": %s, "source": "%s", "copy_changed": %s, "verify": "%s", "in_len": %s, "out_len": %s, "same": %s, "window": "%s", "window_at_paste": "%s", "exit": %s, "ms": %s}\n' \
+    "$START_MS" "$MODE" "$LAYOUTS" "$PANEL_AT_START" "$PANEL_WAIT_MS" "$SOURCE" "$COPY_CHANGED" \
+    "$VERIFY" "${#TEXT}" "${#CONVERTED}" "$SAME" "$WIN_AT_START" "$WIN_AT_PASTE" "$code" \
+    "$(( $(date +%s%3N) - START_MS ))" > "$RUN_LOG" 2>/dev/null
+  return 0
+}
+trap write_run_log EXIT
+
+WIN_AT_START="$(window_class)"
+
+# --- keyboard handoff ------------------------------------------------------
+# An open Omarchy panel (this plugin's popup, or any other keyboard-interactive
+# layer) owns the keyboard, so every synthetic key below — Ctrl+C to grab the
+# selection, Ctrl+V to paste the result — would be delivered to the shell and
+# the conversion would look like a no-op. Panels close on Escape (that is what
+# their key catcher listens for), so dismiss it and wait for the surface to go
+# away before touching the selection.
+panel_open() {
+  command -v hyprctl >/dev/null 2>&1 || return 1
+  hyprctl -j layers 2>/dev/null | grep -q 'omarchy-keyboard-panel'
+}
+
+if panel_open; then
+  PANEL_AT_START=true
+  t0="$(date +%s%3N)"
+  wtype -k Escape 2>/dev/null || true
+  i=0
+  while (( i < 25 )); do
+    panel_open || break
+    sleep 0.08
+    (( i++ )) || true
+  done
+  PANEL_WAIT_MS="$(( $(date +%s%3N) - t0 ))"
+  if panel_open; then
+    notify-send "LangSwitcher" "Панель перехоплює клавіатуру — закрий її (Esc) і спробуй ще" 2>/dev/null || true
+    exit 2
+  fi
+fi
+
+# --- is there a live selection to replace? ---------------------------------
+# Ctrl+C is the only observable proof that the app still owns a selection: it
+# copies the live range, so the clipboard must change. A non-empty primary
+# selection is not proof on its own — Chromium keeps serving the *previous* range
+# through primary after that range has already been replaced (measured: text
+# "привіт", primary "ghbdsn"), and pasting on top of such a stale range inserts
+# the converted text next to the original instead of replacing it.
+terminal_focused() {
+  case "$(printf '%s' "$WIN_AT_START" | tr '[:upper:]' '[:lower:]')" in
+    *alacritty*|*foot*|*kitty*|*ghostty*|*wezterm*|*xterm*|*konsole*|*terminal*|*tilix*|*terminator*|*tilda*)
+      return 0 ;;
+  esac
+  return 1
+}
+
+# Copy the live selection and report whether it is safe to paste over it; TEXT
+# ends up holding exactly what was copied. Ctrl+C is the only observable proof
+# that the app still owns a selection, so the clipboard must change.
+prove_live_selection() {
+  local before primary_text clipboard_text
+  before="$(clip_hash)"
   ctrl_c
-  TEXT="$(paste_clip)"
+  if [[ "$(clip_hash)" != "$before" ]]; then
+    COPY_CHANGED=true
+    TEXT="$(paste_clip)"
+    return 0
+  fi
+  COPY_CHANGED=false
+  # Ctrl+C changed nothing, so either nothing is selected, or the selection's
+  # text is exactly what the clipboard already held — converting the same text
+  # twice is a normal thing to do, so that must not read as "no selection".
+  # The app publishes the live range through the primary selection, so comparing
+  # that with the clipboard separates the two cases.
+  primary_text="$(paste_primary)"
+  clipboard_text="$(paste_clip)"
+  if [[ -n "$primary_text" && "$primary_text" == "$clipboard_text" ]]; then
+    COPY_CHANGED="already"
+    TEXT="$primary_text"
+    return 0
+  fi
+  return 1
 }
 
 case "$MODE" in
   selection)
     TEXT="$(paste_primary)"
-    if [[ -z "$TEXT" ]]; then
-      # primary selection порожній — копіюємо виділення через Ctrl+C
-      ctrl_c
-      TEXT="$(paste_clip)"
-    fi
+    SOURCE="primary"
+    [[ -n "$TEXT" ]] || SOURCE="copy-fallback"
     ;;
-  greedy) sel_and_copy sel_home ;;
-  last-word) sel_and_copy sel_word ;;
+  greedy)
+    sel_home
+    SOURCE="line"
+    ;;
+  last-word)
+    sel_word
+    SOURCE="word"
+    ;;
   *)
     usage; exit 1
     ;;
 esac
+
+# Every mode passes the same gate: whatever is about to be replaced must be a
+# live selection, proven by a Ctrl+C that copies it. Without that proof the
+# paste lands next to the original text instead of replacing it, which is the
+# "converted but doubled" report. Terminals are the one exception — there Ctrl+C
+# is SIGINT, not copy — so they keep the pre-probe behaviour.
+if terminal_focused; then
+  COPY_CHANGED="skipped"
+  VERIFY="terminal"
+  if [[ "$MODE" != "selection" ]]; then
+    ctrl_c
+    TEXT="$(paste_clip)"
+  fi
+elif prove_live_selection; then
+  VERIFY="live"
+else
+  VERIFY="no-live-selection"
+fi
+
+# Nothing is selected (or the app swallowed Ctrl+C): pasting here would insert
+# the converted text next to the original instead of replacing it, which is
+# exactly the doubling. Say so and touch neither the clipboard nor the document.
+if [[ "$VERIFY" == "no-live-selection" ]]; then
+  if [[ "$MODE" == "selection" ]]; then
+    notify-send "LangSwitcher" "Немає виділеного тексту — виділи його і натисни ще" 2>/dev/null || true
+  else
+    notify-send "LangSwitcher" "Не вдалося прочитати виділення — виділи текст вручну і повтори" 2>/dev/null || true
+  fi
+  exit 2
+fi
 
 if [[ -z "$TEXT" ]]; then
   notify-send "LangSwitcher" "Нема тексту: виділи текст і натисни хоткей" 2>/dev/null || true
@@ -104,9 +247,23 @@ CONVERTED="$(python3 "$CONVERTER" --layouts "$LAYOUTS" --mode "$PYMODE" --switch
 }
 
 if [[ -z "$CONVERTED" || "$CONVERTED" == "$TEXT" ]]; then
+  SAME=true
+  exit 2
+fi
+SAME=false
+
+# Never paste into a different window than the one the text was read from: if
+# the focus moved while we were working (a click elsewhere, a notification
+# stealing it), Ctrl+V would drop the result into another application.
+WIN_AT_PASTE="$(window_class)"
+if [[ -n "$WIN_AT_START" && -n "$WIN_AT_PASTE" && "$WIN_AT_PASTE" != "$WIN_AT_START" ]]; then
+  notify-send "LangSwitcher" "Фокус змінився — нічого не вставлено" 2>/dev/null || true
   exit 2
 fi
 
-printf '%s' "$CONVERTED" | wl-copy
+# wl-copy forks a daemon that serves the selection and would otherwise inherit
+# this script's stdio: with a pipe on stdout the caller waits for an EOF that
+# never comes. Detach it so the worker is safe to run under a capturing parent.
+printf '%s' "$CONVERTED" | wl-copy >/dev/null 2>&1
 sleep 0.05
 ctrl_v
