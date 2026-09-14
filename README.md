@@ -49,6 +49,7 @@ irm https://raw.githubusercontent.com/Samuel-Ku/langswitcher-linux/main/windows/
 | Система | Що встановлюється | Гарячі клавіші |
 |---|---|---|
 | Omarchy (Hyprland) | Quattro-плагін: іконка ⌨ в барі + панель + сервіс | `SUPER+\`` — виділення, `SUPER+SHIFT+\`` — рядок, `SUPER+BACKSPACE` — скасувати авто-виправлення |
+| Fedora KDE (Plasma 6) | воркер `kde-convert` (ydotool + `org.kde.keyboard`) | `Meta+\`` — виділення, `Meta+Shift+\`` — рядок |
 | Ubuntu (GNOME) | фоновий воркер + шорткати в Параметрах | `Super+\`` / `Super+Shift+\`` |
 | Mint (Cinnamon) | фоновий воркер + шорткати в Параметрах системи | ті самі |
 | Windows 11 | AutoHotkey-скрипт в автозапуску | подвійний Shift — виділення, пробіл — автозаміна останнього слова |
@@ -61,6 +62,11 @@ irm https://raw.githubusercontent.com/Samuel-Ku/langswitcher-linux/main/windows/
 користувача**: слово, яке він перетворив дарма, досить стерти й надрукувати
 знову — воно запам'ятається і більше не чіпатиметься. Деталі —
 у [`omarchy-plugin/README.md`](omarchy-plugin/README.md).
+
+На Fedora KDE авто-режиму немає і бути не може: Plasma 6 не дає скриптам
+бачити клавіатуру (єдиний справжній API у KWin замкнений на екранні читачі).
+Тому там хоткей — і чесний опис того, що перевірено, а що ні, —
+у [`fedora-kde/README.md`](fedora-kde/README.md).
 
 ## Розкладки
 
@@ -80,6 +86,9 @@ irm https://raw.githubusercontent.com/Samuel-Ku/langswitcher-linux/main/windows/
 - [`install.sh`](install.sh) — універсальна точка входу (детект → завантаження → інсталятор компонента)
 - [`omarchy-plugin/`](omarchy-plugin/) — плагін для Omarchy: `manifest.json`,
   `Service/BarWidget/Panel.qml`, `bin/langswitcher-convert`, `lib/` (Python-ядро, тільки stdlib)
+- [`fedora-kde/`](fedora-kde/) — Fedora KDE (Plasma 6): `bin/kde-convert` (ydotool,
+  бо `wtype` на KWin не працює), KDE-бекенд перемикання розкладки в `lib/`,
+  `install.sh`, spec для RPM
 - [`linux/`](linux/) — Ubuntu/Mint: `bin/linux-convert` (Wayland/X11 автовизначення),
   `install.sh` (apt/dnf/pacman + шорткати GNOME/Cinnamon), тести
 - [`windows/`](windows/) — Windows 11: `LangSwitcher.ahk` (усе в одному файлі),

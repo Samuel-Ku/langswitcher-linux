@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=LangSwitcher: convert line
+Exec=/usr/bin/kde-convert greedy
+NoDisplay=true
+StartupNotify=false
+X-KDE-GlobalAccel-CommandShortcut=true

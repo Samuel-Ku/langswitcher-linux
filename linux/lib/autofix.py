@@ -285,8 +285,19 @@ def _settle(read, *, sleep, attempts: int = 12, different_from: str | None = Non
     return value
 
 
+def _switch_layout(lang: str) -> bool:
+    """The layout switch this module uses.
+
+    Auto mode only ever runs under Hyprland — it is driven by Hyprland's own key
+    events — so the backend is named instead of detected. A switch that guesses
+    wrong silently does nothing, which is how the layout stopped following a fix
+    once already.
+    """
+    return layoutswitch.switch_everywhere(lang, backend="hyprland")
+
+
 def fix(fixed_plan: dict, *, verify: bool = True, run=run_command, sleep=time.sleep,
-        switch=layoutswitch.switch_everywhere) -> dict:
+        switch=_switch_layout) -> dict:
     """Rewrite `fixed_plan["typed"]` as `fixed_plan["fixed"]` and switch layout.
 
     Returns the outcome plus the exact command sequence, which is what the tests
@@ -398,7 +409,7 @@ def is_rejection(record: dict, word: str, window: str, now: float) -> bool:
 
 
 def undo(*, verify: bool = True, run=run_command, sleep=time.sleep,
-         switch=layoutswitch.switch_everywhere, fix_path: str | None = None,
+         switch=_switch_layout, fix_path: str | None = None,
          dictionary_path: str | None = None, now: float | None = None) -> dict:
     """Put the last fix back, restore the layout it came from, and learn the word.
 
@@ -545,7 +556,8 @@ def handle(keycodes_arg: str, *, window: str = "", settings: dict | None = None,
     def switch(lang: str) -> bool:
         if not settings.get("switch", True):
             return False
-        return layoutswitch.switch_everywhere(lang, devices=devices, runner=run)
+        return layoutswitch.switch_everywhere(lang, devices=devices, runner=run,
+                                              backend="hyprland")
 
     result = fix(chosen, verify=bool(settings.get("verify", True)), run=run, sleep=sleep,
                  switch=switch)

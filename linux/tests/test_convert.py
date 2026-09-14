@@ -83,6 +83,17 @@ if os.path.isdir(_twindir):
 else:
     print("skip: lib copies identical (twin not present in this deployment)")
 
+# The KDE bundle shares the same core — the three files its worker runs — but not
+# the Hyprland-only automatic mode, which needs Hyprland's own key events.
+_kdedir = os.path.join(os.path.dirname(__file__), "..", "..", "fedora-kde", "lib")
+if os.path.isdir(_kdedir):
+    for _name in ("langswitcher.py", "switch.py", "layoutswitch.py"):
+        check(f"kde lib copy identical: {_name}",
+              filecmp.cmp(os.path.join(_libdir, _name), os.path.join(_kdedir, _name),
+                          shallow=False), True)
+else:
+    print("skip: kde lib copies identical (bundle not present)")
+
 # --mode auto is the production path that the Windows auto hook mirrors.
 _switch = os.path.join(os.path.dirname(__file__), "..", "lib", "switch.py")
 

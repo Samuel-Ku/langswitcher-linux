@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/Samuel-Ku/langswitcher-linux/main/install.sh | bash
 # Env overrides:
 #   LANGSWITCHER_REPO=...  LANGSWITCHER_BRANCH=...  LANGSWITCHER_SRC=/local/dir (skip download)
-#   LANGSWITCHER_COMPONENT=auto|omarchy-plugin|linux   (default: auto)
+#   LANGSWITCHER_COMPONENT=auto|omarchy-plugin|linux|fedora-kde   (default: auto)
 # Flags: --print-plan (detect + report only), --component <name>
 set -u
 
@@ -47,6 +47,11 @@ pick_component() {
   if [[ "$WANT" != "auto" ]]; then echo "$WANT"; return; fi
   if have omarchy-shell && [[ "$DESKTOP" == *"Hyprland"* ]]; then echo "omarchy-plugin"; return; fi
   if [[ "$ID" == "omarchy" ]]; then echo "omarchy-plugin"; return; fi
+  # Fedora KDE gets its own worker: Plasma needs ydotool (wtype does nothing on
+  # KWin) and switches layouts through org.kde.keyboard instead of hyprctl.
+  if [[ "$ID" == "fedora" ]] && [[ "$DESKTOP" == *"KDE"* || "$DESKTOP" == *"Plasma"* ]]; then
+    echo "fedora-kde"; return
+  fi
   echo "linux"
 }
 
@@ -57,6 +62,7 @@ if [[ "${PRINT_PLAN:-}" == "1" ]]; then
   echo "component=$COMPONENT"
   case "$COMPONENT" in
     omarchy-plugin) echo "would: install Quattro plugin stealth.langswitcher + SUPER+GRAVE binds" ;;
+    fedora-kde) echo "would: install kde-convert (ydotool + org.kde.keyboard) + Meta+GRAVE shortcuts" ;;
     linux) echo "would: install linux worker (Ubuntu GNOME/Mint Cinnamon auto-detect) + shortcuts" ;;
     *) echo "unknown component: $COMPONENT" >&2; exit 1 ;;
   esac
@@ -84,6 +90,7 @@ fi
 
 case "$COMPONENT" in
   omarchy-plugin) bash "$SRC/omarchy-plugin/install-plugin.sh" ;;
+  fedora-kde) bash "$SRC/fedora-kde/install.sh" ;;
   linux) bash "$SRC/linux/install.sh" ;;
   *) echo "unknown component: $COMPONENT" >&2; exit 1 ;;
 esac

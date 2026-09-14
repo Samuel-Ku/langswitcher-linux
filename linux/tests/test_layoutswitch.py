@@ -115,11 +115,115 @@ real_path = os.environ.get("PATH", "")
 os.environ["PATH"] = bindir + os.pathsep + real_path
 try:
     check("switch_everywhere works with the automatic path's runner",
-          ls.switch_everywhere("uk", devices=devices, runner=af.run_command), True)
+          ls.switch_everywhere("uk", devices=devices, runner=af.run_command,
+                               backend="hyprland"), True)
     check("switch_to works with the automatic path's runner",
-          ls.switch_to("uk", devices=devices, runner=af.run_command), True)
+          ls.switch_to("uk", devices=devices, runner=af.run_command,
+                       backend="hyprland"), True)
 finally:
     os.environ["PATH"] = real_path
+
+# ---- KDE Plasma (org.kde.keyboard) -----------------------------------------
+# KWin serves this interface on Wayland and the kded keyboard module on X11, so a
+# KDE port needs no session branching — only a different D-Bus call. The shape of
+# `getLayoutsList()` comes from the upstream introspection XML and from gdbus's
+# own rendering of `a(sss)`: (shortName, displayName, longName), where an empty
+# display name is normal and only the first field is the xkb code.
+check("kde: parses gdbus output",
+      ls.parse_kde_layouts("([('us', '', 'English (US)'), ('ua', '', 'Ukrainian')],)"),
+      ["us", "ua"])
+check("kde: parses custom display names",
+      ls.parse_kde_layouts("([('us', 'Work', 'English (US)'), ('ua', '', 'Ukrainian')],)"),
+      ["us", "ua"])
+check("kde: regex fallback for output Python cannot read",
+      ls.parse_kde_layouts("([('us', '', 'English (US)'), ('ua', '', 'Ukrainian')]) trailing"),
+      ["us", "ua"])
+check("kde: a bare string is not a layout list", ls.parse_kde_layouts("'usua'"), [])
+check("kde: junk -> []", ls.parse_kde_layouts("error: no such service"), [])
+check("kde: empty -> []", ls.parse_kde_layouts(""), [])
+
+
+def kde_run(*, layouts="([('us', '', 'English (US)'), ('ua', '', 'Ukrainian')],)",
+            answer="(true,)", code=0, seen=None):
+    def run(argv, **kw):
+        if seen is not None:
+            seen.append(list(argv))
+        stdout = layouts if "getLayoutsList" in " ".join(argv) else answer
+        return type("D", (), {"stdout": stdout, "stderr": "", "returncode": code})()
+    return run
+
+
+def have_gdbus(_name):
+    return "/usr/bin/gdbus"
+
+
+check("kde: reads the layout list",
+      ls.kde_layouts(runner=kde_run(), which=have_gdbus), ["us", "ua"])
+check("kde: no gdbus -> []", ls.kde_layouts(runner=kde_run(), which=lambda _n: None), [])
+check("kde: interface error -> []", ls.kde_layouts(runner=kde_run(code=1), which=have_gdbus), [])
+
+calls = []
+check("kde: switches to the target index",
+      ls.switch_kde("uk", runner=kde_run(seen=calls), which=have_gdbus), True)
+check("kde: setLayout got that index",
+      [c for c in calls if "setLayout" in " ".join(c)][-1][-1], "1")
+check("kde: refused switch -> False",
+      ls.switch_kde("uk", runner=kde_run(answer="(false,)"), which=have_gdbus), False)
+check("kde: nonzero exit -> False",
+      ls.switch_kde("uk", runner=kde_run(code=1), which=have_gdbus), False)
+check("kde: layout not installed -> False",
+      ls.switch_kde("pl", runner=kde_run(), which=have_gdbus), False)
+check("kde: unknown layout id -> False",
+      ls.switch_kde("de", runner=kde_run(), which=have_gdbus), False)
+check("kde: no gdbus -> False",
+      ls.switch_kde("uk", runner=kde_run(), which=lambda _n: None), False)
+
+# ---- which desktop decides the call ---------------------------------------
+def env(**values):
+    return {k: v for k, v in values.items() if v is not None}
+
+
+def have(*names):
+    return lambda name: ("/usr/bin/" + name) if name in names else None
+
+
+check("backend: hyprland by its own signature",
+      ls.detect_backend(env(HYPRLAND_INSTANCE_SIGNATURE="abc"), have("hyprctl", "gdbus")),
+      "hyprland")
+check("backend: kde by desktop name",
+      ls.detect_backend(env(XDG_CURRENT_DESKTOP="KDE"), have("gdbus")), "kde")
+check("backend: the Plasma spelling too",
+      ls.detect_backend(env(XDG_CURRENT_DESKTOP="Plasma"), have("gdbus")), "kde")
+check("backend: kde without gdbus is nothing",
+      ls.detect_backend(env(XDG_CURRENT_DESKTOP="KDE"), have()), "")
+check("backend: gnome is nothing",
+      ls.detect_backend(env(XDG_CURRENT_DESKTOP="GNOME"), have("gdbus")), "")
+check("backend: the desktop name alone is enough for hyprland",
+      ls.detect_backend(env(XDG_CURRENT_DESKTOP="Hyprland"), have("hyprctl")), "hyprland")
+check("backend: a KDE desktop stays KDE even with hyprctl installed",
+      ls.detect_backend(env(XDG_CURRENT_DESKTOP="KDE"), have("hyprctl", "gdbus")), "kde")
+check("backend: an installed hyprctl alone proves nothing",
+      ls.detect_backend(env(), have("hyprctl", "gdbus")), "")
+check("backend: the environment can name the backend",
+      ls.detect_backend(env(LANGSWITCHER_LAYOUT_BACKEND="kde"), have()), "kde")
+check("backend: and that wins over detection",
+      ls.detect_backend(env(LANGSWITCHER_LAYOUT_BACKEND="kde",
+                            HYPRLAND_INSTANCE_SIGNATURE="abc"), have("hyprctl", "gdbus")),
+      "kde")
+check("backend: and can rule switching out entirely",
+      ls.detect_backend(env(LANGSWITCHER_LAYOUT_BACKEND="none"), have("hyprctl", "gdbus")), "")
+check("backend: an unknown value is ignored",
+      ls.detect_backend(env(LANGSWITCHER_LAYOUT_BACKEND="gnome",
+                            XDG_CURRENT_DESKTOP="KDE"), have("gdbus")), "kde")
+
+calls = []
+check("backend: a desktop we cannot drive is a no-op",
+      ls.switch_to("uk", devices=devices, runner=kde_run(seen=calls), backend=""), False)
+check("backend: and calls nothing", calls, [])
+check("backend: the kde dispatch works through switch_everywhere",
+      ls.switch_everywhere("uk", devices=devices, runner=kde_run(seen=calls),
+                           backend="kde"), True)
+check("backend: and only spoke D-Bus", all("gdbus" in c[0] for c in calls), True)
 
 if fails:
     print("\nFAILURES:")

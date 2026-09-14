@@ -1,0 +1,366 @@
+#!/usr/bin/env python3
+"""LangSwitcher core — layout conversion for en, uk, pl.
+
+Maps physical key positions between layouts, auto-detects which layout a piece
+of text was typed in, preserves the user's punctuation, and recovers Polish
+⌥-layer artifacts. Algorithm and layout maps follow LangSwitcher (MIT) — see
+LICENSE; only the layouts this project ships are kept (Russian is deliberately
+absent — it was never needed).
+
+This file is intentionally duplicated in the omarchy-plugin and linux bundles;
+keep both copies byte-identical.
+
+No dependencies, stdlib only.
+"""
+
+QWERTY = "`1234567890-=qwertyuiop[]\\asdfghjkl;'zxcvbnm,./~!@#$%^&*()_+QWERTYUIOP{}|ASDFGHJKL:\"ZXCVBNM<>?"
+
+_UKRAINIAN = "'1234567890-=йцукенгшщзхї\\фівапролджєячсмитьбю.₴!\"№;%:?*()_+ЙЦУКЕНГШЩЗХЇ/ФІВАПРОЛДЖЄЯЧСМИТЬБЮ,"
+
+
+def _build_map(target: str) -> dict:
+    q = list(QWERTY)
+    t = list(target)
+    return {q[i]: t[i] for i in range(min(len(q), len(t)))}
+
+
+def _identity_map() -> dict:
+    return {c: c for c in QWERTY}
+
+
+# NOTE про польську:
+# Польська programisty фізично збігається з US QWERTY (діакритика через AltGr),
+# тому базова мапа — identity, як і в оригіналі для "british"/"abc".
+# Конвертація en<->pl для звичайного ASCII — no-op (і це правильно).
+# Реальний кейс "не та розкладка" покривається парою en<->uk.
+MAPS: dict[str, dict] = {
+    "en": _identity_map(),
+    "us": _identity_map(),
+    "uk": _build_map(_UKRAINIAN),
+    "ua": _build_map(_UKRAINIAN),
+    "pl": _identity_map(),  # див. NOTE вище
+}
+
+DEFAULT_LAYOUTS = ["en", "uk", "pl"]
+
+# Польська діакритика: ніколи не є артефактом пари en<->uk, тож текст із нею
+# завжди вважаємо навмисною польською і не конвертуємо.
+_PL_DIACRITICS = set("ąćęłńśźżĄĆĘŁŃŚŹŻóÓ")
+
+
+def _is_polish_text(text: str) -> bool:
+    return any(c in _PL_DIACRITICS for c in text)
+
+
+# ---- Option (⌥) layer: Polish <-> Cyrillic recovery -------------------------
+# Polish text typed while a Cyrillic layout is active comes out as that layout's
+# own ⌥-layer characters: on Ukrainian-PC the diacritic chords are ⌥-chords, so
+# ⌥+S emits "ы", ⌥+A emits "ƒ", ⌥+C emits "≠". A base-layer-only conversion
+# leaves those unmapped ("mąka" would become "mƒkф"). Mapping the ⌥ characters
+# by physical key closes the gap: ƒ (⌥+A on Ukrainian-PC) -> a -> ą (⌥+A on
+# Polish Pro).
+#
+# Source-side only: a Polish diacritic folds to its physical base key; the
+# reverse (plain base letter -> diacritic) is intentionally NOT synthesised.
+_POLISH_DIACRITIC_BASES = {
+    "ą": "a", "ć": "c", "ę": "e", "ł": "l", "ń": "n",
+    "ó": "o", "ś": "s", "ź": "x", "ż": "z",
+    "Ą": "A", "Ć": "C", "Ę": "E", "Ł": "L", "Ń": "N",
+    "Ó": "O", "Ś": "S", "Ź": "X", "Ż": "Z",
+}
+
+# Polish Pro ⌥ layer, inverted from the fold so both share one source of truth.
+_POLISH_PRO_OPTION = {
+    base: diacritic
+    for diacritic, base in _POLISH_DIACRITIC_BASES.items()
+    if diacritic.islower()
+}
+
+# Ukrainian-PC ⌥ layer (letter keys a-z, real extraction).
+_UKRAINIAN_OPTION = {
+    "a": "ƒ", "b": "и", "c": "≠", "d": "ћ", "e": "ќ", "f": "÷", "g": "©",
+    "h": "}", "i": "ѕ", "j": "°", "k": "љ", "l": "∆", "m": "~", "n": "™",
+    "o": "ў", "p": "‘", "q": "ј", "r": "®", "s": "ы", "t": "ё", "u": "ґ",
+    "v": "µ", "w": "џ", "x": "≈", "y": "њ", "z": "ђ",
+}
+
+_OPTION_MAPS = {
+    "uk": _UKRAINIAN_OPTION,
+    "ua": _UKRAINIAN_OPTION,
+    "pl": _POLISH_PRO_OPTION,
+}
+
+# Every value any ⌥ map can emit. These are layout artifacts, not punctuation:
+# the boundary splitter must never treat them as user-typed punctuation.
+_OPTION_ARTIFACTS = set().union(*(m.values() for m in _OPTION_MAPS.values()))
+
+
+def _option_map(layout_id: str) -> dict:
+    return _OPTION_MAPS.get(layout_id, {})
+
+
+def _is_ascii(c: str) -> bool:
+    return ord(c) < 128
+
+
+def convert(text: str, from_layout: str, to_layout: str) -> str | None:
+    """Конвертація за фізпозиціями + збереження пунктуації +
+    відновлення польського ⌥-шару/діакритики."""
+    src = MAPS.get(from_layout)
+    dst = MAPS.get(to_layout)
+    if src is None or dst is None:
+        return None
+    reverse = {}
+    for k, v in src.items():
+        reverse.setdefault(v, k)
+    is_polish_source = "pl" in from_layout or "polish" in from_layout
+    source_option = _option_map(from_layout)
+    reverse_option = {}
+    for k, v in source_option.items():
+        reverse_option.setdefault(v, k)
+    target_option = _option_map(to_layout)
+
+    out = []
+    for ch in text:
+        physical = reverse.get(ch)
+        if physical is not None and physical in dst:
+            target = dst[physical]
+            # пунктуація: non-letter -> non-letter лишаємо як є
+            out.append(ch if (not ch.isalpha() and not target.isalpha()) else target)
+        elif is_polish_source and ch in _POLISH_DIACRITIC_BASES \
+                and _POLISH_DIACRITIC_BASES[ch] in dst:
+            out.append(dst[_POLISH_DIACRITIC_BASES[ch]])
+        elif ch in reverse_option:
+            key = reverse_option[ch]
+            target_option_char = target_option.get(key)
+            if target_option_char is not None and target_option_char.isalpha():
+                out.append(target_option_char)
+            elif key in dst:
+                out.append(dst[key])
+            else:
+                out.append(ch)
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def detect_source_layout(text: str, candidates: list[str]) -> str | None:
+    """Розкладка-кандидат, чий набір символів покриває більше символів тексту."""
+    best = None
+    best_score = 0
+    for lid in candidates:
+        m = MAPS.get(lid)
+        if m is None:
+            continue
+        charset = set(m.values())
+        score = sum(1 for c in text if c in charset)
+        if score > best_score:
+            best_score = score
+            best = lid
+    return best
+
+
+def _is_boundary_affix(c: str) -> bool:
+    return not (c.isalpha() or c.isdigit()) and c not in _OPTION_ARTIFACTS
+
+
+def _split_affixes(text: str) -> tuple[str, str, str]:
+    """Split leading/trailing non-alphanumerics from the core.
+
+    "ghbdsn." -> ("", "ghbdsn", "."); "(Руддщ)" -> ("(", "Руддщ", ")").
+    Punctuation a user typed at a word boundary is theirs to keep — it must not
+    be run through the layout map (where '.' would become 'ю', ',' -> 'б').
+
+    ⌥-layer artifacts (© ≠ ∆ ...) are NOT punctuation even when they look like
+    symbols, so they stay in the core and get recovered by convert().
+    """
+    i, j = 0, len(text)
+    while i < j and _is_boundary_affix(text[i]):
+        i += 1
+    while j > i and _is_boundary_affix(text[j - 1]):
+        j -= 1
+    return text[:i], text[i:j], text[j:]
+
+
+def convert_selected(text: str, layouts: list[str]) -> tuple[str, str] | None:
+    """Повертає (конвертований текст, target_layout).
+
+    Convention applies only to the alphanumeric core; leading/trailing punctuation
+    is preserved verbatim so "ghbdsn." -> "привіт.", not "привітю".
+    """
+    if len(layouts) < 2:
+        return None
+    if _is_polish_text(text):
+        return None
+    lead, core, trail = _split_affixes(text)
+    if not core:
+        return None
+    src = detect_source_layout(core, layouts)
+    if src is None:
+        return None
+    # If the text carries the source layout's ⌥-layer artifacts, the user typed
+    # diacritic chords — they intended the layout that owns those chords (Polish),
+    # so prefer a target with an ⌥ map over the plain "first other" layout.
+    # Only *distinctive* artifacts count: some ⌥ values (e.g. "и") are also
+    # ordinary base-layer letters and must not trigger this.
+    base_values = set(MAPS.get(src, {}).values())
+    distinctive = set(_option_map(src).values()) - base_values
+    target = None
+    if any(c in distinctive for c in core):
+        target = next((l for l in layouts if l != src and _option_map(l)), None)
+    if target is None:
+        target = next((l for l in layouts if l != src), None)
+    if target is None:
+        target = layouts[0]
+    res = convert(core, src, target)
+    if res is None:
+        return None
+    return lead + res + trail, target
+
+
+def looks_like_wrong_layout(text: str, layouts: list[str]) -> bool:
+    """True, якщо конвертація перемикає скрипт тексту (латиниця <-> кирилиця)."""
+    trimmed = text.strip()
+    if not trimmed:
+        return False
+    if len(layouts) < 2:
+        return False
+    if _is_polish_text(trimmed):
+        return False
+    src = detect_source_layout(trimmed, layouts)
+    if src is None:
+        return False
+    for layout in layouts:
+        if layout == src:
+            continue
+        conv = convert(trimmed, src, layout)
+        if conv is None:
+            continue
+        src_latin_only = all(_is_ascii(c) or not c.isalpha() for c in trimmed)
+        conv_non_latin = any(not _is_ascii(c) and c.isalpha() for c in conv)
+        src_non_latin = any(not _is_ascii(c) and c.isalpha() for c in trimmed)
+        conv_latin_only = all(_is_ascii(c) or not c.isalpha() for c in conv)
+        if src_latin_only and conv_non_latin:
+            return True
+        if src_non_latin and conv_latin_only:
+            return True
+    return False
+
+
+# Vowels per script, for the conservative auto-mode check below.
+_LATIN_VOWELS = set("aeiouyAEIOUY")
+_CYRILLIC_VOWELS = set("аеєиіїоуюяАЕЄИІЇОУЮЯ")
+
+
+def _has_vowel(text: str, vowels: set) -> bool:
+    return any(c in vowels for c in text)
+
+
+def looks_like_wrong_layout_strict(text: str, layouts: list[str], min_len: int = 3) -> bool:
+    """Консервативна перевірка для AUTO-режимів (конвертація після пробілу).
+
+    ``looks_like_wrong_layout`` повертає True для *будь-якого* латинського слова,
+    що мапиться в кирилицю, тому він годиться лише для явної дії користувача.
+    Автоконвертація після пробілу потребує строгішого сигналу, інакше кожне
+    звичайне англійське слово переписувалося б.
+
+    Rule: fire only when the word is implausible in its current script (no
+    vowel) and plausible in the target script (has a vowel). "ghbdsn" has no
+    Latin vowel and maps to "привіт" (has Cyrillic vowels) -> convert. "hello"
+    already has vowels -> leave alone. Polish diacritics never convert.
+
+    Leading/trailing punctuation is ignored for the test, so a sentence-ending
+    "ghbdsn." still converts (and the "." is preserved).
+    """
+    _, core, _ = _split_affixes(text.strip())
+    if len(core) < min_len or not core.isalpha():
+        return False
+    if _is_polish_text(text):
+        return False
+    resolved = convert_selected(core, layouts)
+    if resolved is None:
+        return False
+    conv, _ = resolved
+    if conv == core:
+        return False
+    if core.isascii():
+        return not _has_vowel(core, _LATIN_VOWELS) and _has_vowel(conv, _CYRILLIC_VOWELS)
+    return not _has_vowel(core, _CYRILLIC_VOWELS) and _has_vowel(conv, _LATIN_VOWELS)
+
+
+def _tokenize(text: str) -> list[str]:
+    tokens: list[str] = []
+    cur = ""
+    in_word = False
+    for ch in text:
+        is_word = ch.isalpha() or ch.isdigit()
+        if is_word:
+            if not in_word and cur:
+                tokens.append(cur)
+                cur = ""
+            in_word = True
+            cur += ch
+        else:
+            if in_word and cur:
+                tokens.append(cur)
+                cur = ""
+            in_word = False
+            cur += ch
+    if cur:
+        tokens.append(cur)
+    return tokens
+
+
+def _is_sep(tok: str) -> bool:
+    return all(not c.isalpha() and not c.isdigit() for c in tok)
+
+
+def find_wrong_boundary(text: str, layouts: list[str]) -> tuple[str, str] | None:
+    """Межа, з якої починається хвіст у неправильній розкладці (greedy two-pass, поріг 70%)."""
+    if len(layouts) < 2:
+        return None
+    tokens = _tokenize(text)
+    if not tokens:
+        return None
+    words = [t for t in tokens if not _is_sep(t)]
+    if not words:
+        return None
+
+    wrong = sum(1 for w in words if looks_like_wrong_layout(w, layouts))
+
+    if wrong == len(words):
+        return "", text
+    if len(words) >= 3 and wrong / len(words) >= 0.7:
+        return "", text
+
+    start = len(tokens)
+    found = False
+    for i in range(len(tokens) - 1, -1, -1):
+        tok = tokens[i]
+        if _is_sep(tok):
+            continue
+        if looks_like_wrong_layout(tok, layouts):
+            start = i
+            found = True
+        else:
+            break
+    if not found or start >= len(tokens):
+        return None
+    keep = "".join(tokens[:start])
+    conv = "".join(tokens[start:])
+    if not conv.strip():
+        return None
+    return keep, conv
+
+
+def convert_greedy(text: str, layouts: list[str]) -> tuple[str, str] | None:
+    """Конвертує хвіст рядка, набраний у неправильній розкладці."""
+    b = find_wrong_boundary(text, layouts)
+    if b is None:
+        return None
+    keep, conv_part = b
+    r = convert_selected(conv_part, layouts)
+    if r is None:
+        return None
+    converted, target = r
+    return keep + converted, target

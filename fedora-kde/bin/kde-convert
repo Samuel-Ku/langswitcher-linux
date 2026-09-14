@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+# kde-convert — LangSwitcher worker for KDE Plasma (Fedora, Plasma 6).
+#
+# Plasma is the desktop where the obvious tool is the wrong one: `wtype` drives
+# `zwp_virtual_keyboard_v1`, a wlroots protocol that KWin does not implement, so
+# on KDE Wayland it silently does nothing. ydotool goes through the kernel's
+# uinput instead and is compositor-agnostic — it just needs `ydotoold` running
+# and a socket this user may write to (see install.sh). Set
+# LANGSWITCHER_TYPER=wtype only on a wlroots compositor (Sway, Hyprland).
+#
+# Layout switching is not done here: switch.py does it, through
+# lib/layoutswitch.py, which talks to `org.kde.keyboard` over D-Bus (the same
+# interface on Wayland and X11). The export below names that backend instead of
+# leaving it to desktop-name detection, so the switch does not depend on how the
+# session spells XDG_CURRENT_DESKTOP.
+#
+# Usage: kde-convert [selection|greedy|last-word] [--layouts en,uk,pl]
+#        kde-convert --check   (session, backend, deps and KDE layouts as JSON)
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# From a checkout: <bundle>/bin/../lib. From the RPM: /usr/bin + /usr/share.
+LIB_DIR="${LANGSWITCHER_LIB:-$SCRIPT_DIR/../lib}"
+[[ -d "$LIB_DIR" ]] || LIB_DIR="/usr/share/langswitcher-kde/lib"
+CONVERTER="$LIB_DIR/switch.py"
+LAYOUTS="en,uk,pl"
+TYPER="${LANGSWITCHER_TYPER:-ydotool}"
+export LANGSWITCHER_LAYOUT_BACKEND="${LANGSWITCHER_LAYOUT_BACKEND:-kde}"
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# ydotool's `key` takes evdev *keycodes*, not key names (upstream: "key now
+# (only) accepts keycodes, so it is not limited to a specific keyboard layout").
+# 29=LEFTCTRL 42=LEFTSHIFT 46=C 47=V 102=HOME 105=LEFT 14=BACKSPACE.
+# Unquoted on purpose: the shell has to split these into separate arguments.
+YD_CTRL_C="29:1 46:1 46:0 29:0"
+YD_CTRL_V="29:1 47:1 47:0 29:0"
+YD_SEL_WORD="29:1 42:1 105:1 105:0 42:0 29:0"
+YD_SEL_HOME="42:1 102:1 102:0 42:0"
+
+detect_backend() {
+  # Explicit override for testing: LANGSWITCHER_BACKEND=wayland|x11
+  if [[ "${LANGSWITCHER_BACKEND:-}" == "wayland" ]]; then echo wayland; return; fi
+  if [[ "${LANGSWITCHER_BACKEND:-}" == "x11" ]]; then echo x11; return; fi
+  if [[ "${XDG_SESSION_TYPE:-}" == "wayland" ]] && have wl-copy; then echo wayland; return; fi
+  if [[ -n "${WAYLAND_DISPLAY:-}" ]] && have wl-copy; then echo wayland; return; fi
+  if [[ -n "${DISPLAY:-}" ]] && have xclip && have xdotool; then echo x11; return; fi
+  if have wl-copy; then echo wayland; return; fi
+  echo none
+}
+
+BACKEND="$(detect_backend)"
+
+if [[ "${1:-}" == "--check" ]]; then
+  LANGSWITCHER_LIB="$LIB_DIR" LANGSWITCHER_TYPER="$TYPER" python3 - <<'PY'
+"""Facts a Fedora KDE user needs before trusting this: what it will call, what
+is missing, whether the KDE layout list even has us/ua, and whether the ydotool
+socket is one this user can write to (the usual install-day failure)."""
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+sys.path.insert(0, os.environ["LANGSWITCHER_LIB"])
+import layoutswitch as ls  # noqa: E402
+
+typer = os.environ.get("LANGSWITCHER_TYPER") or "ydotool"
+session = os.environ.get("XDG_SESSION_TYPE") or "unknown"
+desktop = os.environ.get("XDG_CURRENT_DESKTOP") or "unknown"
+backend = ls.detect_backend()
+layouts = ls.kde_layouts() if backend == "kde" else []
+missing = [tool for tool in ("python3", "wl-paste", "wl-copy", typer)
+           if not shutil.which(tool)]
+if backend == "kde" and not shutil.which("gdbus"):
+    missing.append("gdbus")
+
+
+def converted(text):
+    done = subprocess.run(["python3", os.path.join(os.environ["LANGSWITCHER_LIB"], "switch.py"),
+                           "--layouts", "en,uk,pl", text],
+                          capture_output=True, text=True, timeout=15)
+    return done.stdout, done.returncode
+
+
+selftest = "skipped"
+if not missing:
+    fixed, _ = converted("ghbdsn")
+    polish, code = converted("Zażółć gęślą jaźń")
+    selftest = "ok" if fixed == "привіт" and polish == "" and code != 0 else "failed"
+
+socket_path = os.environ.get("YDOTOOL_SOCKET") or "/tmp/.ydotool_socket"
+ydotool = {"socket": socket_path, "exists": os.path.exists(socket_path)}
+if ydotool["exists"]:
+    stat = os.stat(socket_path)
+    ydotool.update({"mode": oct(stat.st_mode & 0o777), "writable": os.access(socket_path, os.W_OK)})
+
+hints = []
+if missing:
+    hints.append("sudo dnf install " + " ".join(sorted(set(missing))))
+if typer == "wtype" and backend == "kde":
+    hints.append("wtype does not work on KWin: use ydotool (LANGSWITCHER_TYPER=unset)")
+if typer == "ydotool" and not ydotool.get("writable"):
+    hints.append("ydotoold socket is missing or not writable by you: run ./install.sh "
+                 "(it hands the socket to your user) or check `systemctl status ydotool`")
+if backend != "kde":
+    hints.append("org.kde.keyboard was not detected: on Plasma set "
+                 "LANGSWITCHER_LAYOUT_BACKEND=kde, or check that gdbus is installed")
+if backend == "kde" and layouts and not ({"us", "ua"} & set(layouts)):
+    hints.append("KDE has no us/ua layout configured: System Settings -> Keyboard -> Layouts")
+if not layouts and backend == "kde":
+    hints.append("no answer from org.kde.keyboard: is this a Plasma session?")
+
+payload = {
+    "ok": not missing and selftest == "ok" and backend == "kde",
+    "session": session,
+    "desktop": desktop,
+    "backend": backend,
+    "typer": typer,
+    "missing": missing,
+    "selftest": selftest,
+    "kde": {"layouts": layouts, "has_us_ua": bool({"us", "ua"} & set(layouts))},
+    "ydotool": ydotool,
+    "hints": hints,
+}
+print(json.dumps(payload, ensure_ascii=False))
+sys.exit(0 if payload["ok"] else 1)
+PY
+  exit $?
+fi
+
+MODE="${1:-selection}"
+if [[ "$MODE" == "--layouts" ]]; then
+  LAYOUTS="${2:-en,uk,pl}"
+  MODE="selection"
+elif [[ "${2:-}" == "--layouts" ]]; then
+  LAYOUTS="${3:-en,uk,pl}"
+fi
+
+case "$MODE" in selection|greedy|last-word) ;; *)
+  echo "usage: $(basename "$0") [selection|greedy|last-word] [--layouts en,uk,pl] | --check" >&2
+  exit 1 ;;
+esac
+
+notify() { notify-send "LangSwitcher" "$1" 2>/dev/null || true; }
+
+if [[ "$BACKEND" == "wayland" ]]; then
+  for dep in wl-paste wl-copy python3 "$TYPER"; do
+    have "$dep" || { echo "langswitcher: missing dep: $dep" >&2; exit 1; }
+  done
+  paste_primary() { wl-paste --primary 2>/dev/null || true; }
+  paste_clip() { wl-paste 2>/dev/null || true; }
+  put_clip() { printf '%s' "$1" | wl-copy; }
+  if [[ "$TYPER" == "wtype" ]]; then
+    # A wlroots compositor only. On KWin this silently does nothing.
+    ctrl_c() { wtype -M ctrl -k c -m ctrl 2>/dev/null; sleep 0.12; }
+    ctrl_v() { wtype -M ctrl -k v -m ctrl 2>/dev/null; }
+    sel_home() { wtype -M shift -k Home -m shift 2>/dev/null; sleep 0.08; }
+    sel_word() { wtype -M ctrl -M shift -k Left -m shift -m ctrl 2>/dev/null; sleep 0.08; }
+  else
+    ctrl_c() { ydotool key $YD_CTRL_C 2>/dev/null; sleep 0.12; }
+    ctrl_v() { ydotool key $YD_CTRL_V 2>/dev/null; }
+    sel_home() { ydotool key $YD_SEL_HOME 2>/dev/null; sleep 0.08; }
+    sel_word() { ydotool key $YD_SEL_WORD 2>/dev/null; sleep 0.08; }
+  fi
+elif [[ "$BACKEND" == "x11" ]]; then
+  for dep in xclip xdotool python3; do
+    have "$dep" || { echo "langswitcher: missing dep: $dep" >&2; exit 1; }
+  done
+  paste_primary() { xclip -o -selection primary 2>/dev/null || true; }
+  paste_clip() { xclip -o -selection clipboard 2>/dev/null || true; }
+  put_clip() { printf '%s' "$1" | xclip -selection clipboard 2>/dev/null; }
+  # Under an X11 session xdotool is the right tool: it talks to the X server
+  # directly, with no uinput daemon in the way.
+  ctrl_c() { xdotool key ctrl+c 2>/dev/null; sleep 0.15; }
+  ctrl_v() { xdotool key ctrl+v 2>/dev/null; }
+  sel_home() { xdotool key Shift+Home 2>/dev/null; sleep 0.1; }
+  sel_word() { xdotool key ctrl+shift+Left 2>/dev/null; sleep 0.1; }
+else
+  echo "langswitcher: no supported backend (need wl-clipboard+ydotool on Wayland or xclip+xdotool on X11)" >&2
+  exit 1
+fi
+
+have python3 || { echo "langswitcher: missing dep: python3" >&2; exit 1; }
+[[ -f "$CONVERTER" ]] || { echo "langswitcher: not found: $CONVERTER" >&2; exit 1; }
+
+TEXT=""
+
+sel_and_copy() {
+  "$1"
+  ctrl_c
+  TEXT="$(paste_clip)"
+}
+
+case "$MODE" in
+  selection)
+    TEXT="$(paste_primary)"
+    if [[ -z "$TEXT" ]]; then
+      ctrl_c
+      TEXT="$(paste_clip)"
+    fi
+    ;;
+  greedy) sel_and_copy sel_home ;;
+  last-word) sel_and_copy sel_word ;;
+esac
+
+if [[ -z "$TEXT" ]]; then
+  notify "Нема тексту: виділи текст і натисни хоткей"
+  exit 2
+fi
+
+PYMODE="$MODE"
+[[ "$MODE" == "selection" ]] || PYMODE="greedy"
+CONVERTED="$(python3 "$CONVERTER" --layouts "$LAYOUTS" --mode "$PYMODE" --switch always "$TEXT" 2>/dev/null)" || {
+  notify "Не схоже на неправильну розкладку"
+  exit 2
+}
+
+if [[ -z "$CONVERTED" || "$CONVERTED" == "$TEXT" ]]; then
+  exit 2
+fi
+
+put_clip "$CONVERTED"
+sleep 0.05
+ctrl_v

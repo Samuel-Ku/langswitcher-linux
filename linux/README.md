@@ -80,6 +80,9 @@ printf 'ghbdsn' | python3 lib/switch.py --switch always   # конвертує +
 - `--switch never` (default для CLI) / `if-converted` / `always`.
 - **Hyprland:** реалізовано через `hyprctl switchxkblayout` (обирає main-клавіатуру,
   знаходить індекс цільової xkb-розкладки). Перевірено наживо.
+- **KDE Plasma 6:** через `org.kde.keyboard` (`gdbus`; `getLayoutsList` віддає
+  xkb-коди, `setLayout` перемикає) — один інтерфейс для Wayland і X11. Окремий
+  воркер, бо там потрібен ydotool замість wtype: `fedora-kde/`.
 - **GNOME/Cinnamon/інші:** поки no-op (програмного перемикання без гіпотез немає)
   — конвертація працює, розкладку перемикаєш вручну.
 - Воркери (`linux-convert`, omarchy-плагін) передають `--switch always`, тож із

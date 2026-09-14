@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=LangSwitcher: convert selection
+Exec=/usr/bin/kde-convert selection
+NoDisplay=true
+StartupNotify=false
+X-KDE-GlobalAccel-CommandShortcut=true
