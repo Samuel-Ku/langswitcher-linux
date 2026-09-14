@@ -48,7 +48,7 @@ irm https://raw.githubusercontent.com/Samuel-Ku/langswitcher-linux/main/windows/
 
 | Система | Що встановлюється | Гарячі клавіші |
 |---|---|---|
-| Omarchy (Hyprland) | Quattro-плагін: іконка ⌨ в барі + панель + сервіс | `SUPER+\`` — виділення, `SUPER+SHIFT+\`` — рядок |
+| Omarchy (Hyprland) | Quattro-плагін: іконка ⌨ в барі + панель + сервіс | `SUPER+\`` — виділення, `SUPER+SHIFT+\`` — рядок, `SUPER+BACKSPACE` — скасувати авто-виправлення |
 | Ubuntu (GNOME) | фоновий воркер + шорткати в Параметрах | `Super+\`` / `Super+Shift+\`` |
 | Mint (Cinnamon) | фоновий воркер + шорткати в Параметрах системи | ті самі |
 | Windows 11 | AutoHotkey-скрипт в автозапуску | подвійний Shift — виділення, пробіл — автозаміна останнього слова |
@@ -56,6 +56,11 @@ irm https://raw.githubusercontent.com/Samuel-Ku/langswitcher-linux/main/windows/
 Подвійний Shift як на маку під Linux зловити неможливо (Wayland не віддає
 такі події), тому там `Super+\``. Зате на Windows — чесний подвійний Shift
 і навіть автозаміна після пробілу, як у Punto Switcher.
+
+На Omarchy до цього є авто-режим (плагін сам ловить пробіл) і **словник
+користувача**: слово, яке він перетворив дарма, досить стерти й надрукувати
+знову — воно запам'ятається і більше не чіпатиметься. Деталі —
+у [`omarchy-plugin/README.md`](omarchy-plugin/README.md).
 
 ## Розкладки
 

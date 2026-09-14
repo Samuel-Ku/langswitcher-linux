@@ -97,8 +97,17 @@ printf 'ghbdsn' | python3 lib/switch.py --switch always   # конвертує +
 
 - `bin/linux-convert` — воркер (Wayland/X11 автовизначення)
 - `lib/langswitcher.py`, `lib/switch.py` — ядро + CLI (тільки stdlib)
+- `lib/layoutswitch.py` — перемикання розкладки після конвертації
+- `lib/keycodes.py`, `lib/autofix.py`, `lib/dictionary.py` — авто-режим
+  (Punto-style: буфер клавіш → рішення → переписування) і словник користувача;
+  у цьому бандлі вони лежать байт-у-байт як у `omarchy-plugin/lib`, бо це те
+  саме ядро, але вмикає авто-режим саме Omarchy-плагін (`require("hypr.langswitcher-auto")`).
+  Словник — `~/.config/omarchy/langswitcher-dictionary.json`, відкат останнього
+  авто-виправлення — `langswitcher-auto --undo` (`SUPER+BACKSPACE` у плагіні).
 - `install.sh` — deps + файли + шорткати GNOME/Cinnamon
-- `tests/test_convert.py` — self-tests ядра
+- `tests/test_convert.py` — self-tests ядра (плюс `test_autofix.py`,
+  `test_dictionary.py`, `test_keycodes.py`, `test_layoutswitch.py`,
+  `test_lua_module.py` — той самий самоперевірний харнес, без pytest)
 
 ## Видалення
 
