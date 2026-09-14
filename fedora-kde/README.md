@@ -113,9 +113,11 @@ gdbus call --session --dest org.kde.keyboard --object-path /Layouts \
 
 ## Чому тут немає авто-режиму (Punto-style)
 
-На Omarchy авто-режим живий, бо Hyprland сам віддає кожну клавішу
-(`input.keyboard.key`). На Plasma 6 такого немає ні для скриптів, ні для
-звичайних програм:
+Це **свідоме рішення**, а не недоробка: на Plasma 6 авто-режим неможливий як порт
+цього воркера, і краще мати чесний хоткей, ніж демон із root-правами, який
+неможливо перевірити. Ось чому — на Omarchy авто-режим живий, бо Hyprland сам
+віддає кожну клавішу (`input.keyboard.key`). У Plasma такого немає ні для
+скриптів, ні для звичайних програм:
 
 - KWin scripting уміє лише `registerShortcut` — жодного колбека на клавіші;
   `KWin::InputEventSpy::keyboardKey()` існує тільки як C++ SPI всередині KWin;
