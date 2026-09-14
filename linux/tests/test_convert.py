@@ -75,7 +75,8 @@ check("punct: strict only symbols", looks_like_wrong_layout_strict("...", L), Fa
 _libdir = os.path.join(os.path.dirname(__file__), "..", "lib")
 _twindir = os.path.join(os.path.dirname(__file__), "..", "..", "omarchy-plugin", "lib")
 if os.path.isdir(_twindir):
-    for _name in ("langswitcher.py", "switch.py", "layoutswitch.py"):
+    for _name in ("langswitcher.py", "switch.py", "layoutswitch.py",
+                  "keycodes.py", "autofix.py"):
         check(f"lib copies identical: {_name}",
               filecmp.cmp(os.path.join(_libdir, _name), os.path.join(_twindir, _name),
                           shallow=False), True)

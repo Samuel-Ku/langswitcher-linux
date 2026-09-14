@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+"""Entry point for automatic (Punto-style) conversion.
+
+Called by ``hypr/langswitcher-auto.lua`` with the X11 keycodes of the word that
+was just finished (comma separated, ``s`` prefix for Shift-held keys), and by
+hand for diagnostics:
+
+    langswitcher-auto 42,43,56,40,39,57 --window org.gnome.TextEditor
+    langswitcher-auto --check          # deps, settings, decoded sample (JSON)
+    langswitcher-auto --decode 42,43,56,40,39,57   # what it decodes and decides
+
+All the logic lives in ``lib/autofix.py``; this file only fixes up sys.path.
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+
+from autofix import main  # noqa: E402
+
+raise SystemExit(main(sys.argv[1:]))

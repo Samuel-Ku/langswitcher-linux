@@ -80,6 +80,47 @@ def fail_run(args, **kw):
 check("switch_to nonzero exit -> False",
       ls.switch_to("uk", devices=devices, runner=fail_run), False)
 
+# ---- switching every keyboard (what automatic mode uses) ----
+# The device the compositor calls "main" changes as virtual keyboards come and
+# go, and keyboards switch independently, so a background conversion moves them
+# all — the same call the Right-Alt binding makes.
+calls.clear()
+check("switch_everywhere uk", ls.switch_everywhere("uk", devices=devices, runner=fake_run), True)
+check("switch_everywhere command", calls[-1], ["hyprctl", "switchxkblayout", "all", "1"])
+calls.clear()
+check("switch_everywhere missing layout -> False",
+      ls.switch_everywhere("pl", devices=devices, runner=fake_run), False)
+check("switch_everywhere did not call runner", calls, [])
+check("switch_everywhere no keyboards -> False",
+      ls.switch_everywhere("uk", devices={"keyboards": []}, runner=fake_run), False)
+check("switch_everywhere nonzero exit -> False",
+      ls.switch_everywhere("uk", devices=devices, runner=fail_run), False)
+
+# ---- the runner the automatic path injects --------------------------------
+# That runner (`autofix.run_command`) captures output itself, so asking it to
+# capture again raised TypeError — and this module's `except Exception` reported
+# that as a failed switch. The layout therefore never followed an automatic fix.
+# A real runner and a fake hyprctl on PATH: the whole combination, not a stub
+# that quietly accepts any keyword.
+import tempfile  # noqa: E402
+
+import autofix as af  # noqa: E402
+
+bindir = tempfile.mkdtemp()
+fake_hyprctl = os.path.join(bindir, "hyprctl")
+with open(fake_hyprctl, "w", encoding="utf-8") as handle:
+    handle.write("#!/bin/sh\necho ok\nexit 0\n")
+os.chmod(fake_hyprctl, 0o755)
+real_path = os.environ.get("PATH", "")
+os.environ["PATH"] = bindir + os.pathsep + real_path
+try:
+    check("switch_everywhere works with the automatic path's runner",
+          ls.switch_everywhere("uk", devices=devices, runner=af.run_command), True)
+    check("switch_to works with the automatic path's runner",
+          ls.switch_to("uk", devices=devices, runner=af.run_command), True)
+finally:
+    os.environ["PATH"] = real_path
+
 if fails:
     print("\nFAILURES:")
     for f in fails:
