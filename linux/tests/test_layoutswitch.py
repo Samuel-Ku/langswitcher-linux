@@ -104,6 +104,8 @@ check("switch_everywhere nonzero exit -> False",
 # that quietly accepts any keyword.
 import tempfile  # noqa: E402
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..",
+                                "omarchy-plugin", "lib"))
 import autofix as af  # noqa: E402
 
 bindir = tempfile.mkdtemp()

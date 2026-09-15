@@ -1,8 +1,8 @@
 # Fedora spec for the KDE Plasma bundle of LangSwitcher.
 #
 # Build (from a checkout of the repository):
-#   git archive --prefix=langswitcher-linux-1.1.0/ \
-#       -o ~/rpmbuild/SOURCES/langswitcher-linux-1.1.0.tar.gz HEAD
+#   git archive --prefix=langswitcher-linux-1.2.0/ \
+#       -o ~/rpmbuild/SOURCES/langswitcher-linux-1.2.0.tar.gz HEAD
 #   rpmbuild -bb fedora-kde/packaging/langswitcher-kde.spec
 #
 # The package installs the command and the two KDE command shortcuts. It does not
@@ -10,7 +10,7 @@
 # socket to a user and binding a shortcut are per-user decisions. Run
 # fedora-kde/install.sh for those, or do them from System Settings.
 Name:           langswitcher-kde
-Version:        1.1.0
+Version:        1.2.0
 Release:        1%{?dist}
 Summary:        Fix text typed in the wrong keyboard layout (KDE Plasma)
 
@@ -69,5 +69,10 @@ printf 'ghbdsn' | python3 %{buildroot}%{_datadir}/langswitcher-kde/lib/switch.py
 %doc fedora-kde/README.md
 
 %changelog
+* Tue Sep 15 2026 Samuel-Ku <shtopor02@gmail.com> - 1.2.0-1
+- Shared core: the auto-mode decision is now three-tier (word veto, known word,
+  letter n-grams) instead of the "no Latin vowel" heuristic
+- The decision data is no longer shipped in this package: it is a CC BY-SA 4.0
+  release artifact, fetched by the installers
 * Sun Sep 14 2026 Samuel-Ku <shtopor02@gmail.com> - 1.1.0-1
 - KDE Plasma bundle: hotkey worker on ydotool, org.kde.keyboard layout switch

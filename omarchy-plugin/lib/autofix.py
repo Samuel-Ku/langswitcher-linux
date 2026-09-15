@@ -56,7 +56,7 @@ import time
 import dictionary
 import keycodes
 import layoutswitch
-from langswitcher import convert_selected, looks_like_wrong_layout_strict
+from langswitcher import convert_full, looks_like_wrong_layout_plausible
 
 SETTINGS_PATH = "~/.config/omarchy/langswitcher-auto.json"
 STATE_PATH = "~/.local/state/langswitcher/last-auto.json"
@@ -88,7 +88,9 @@ DEFAULTS = {
     # "the layout must not move on its own" stays a choice.
     "switch": True,
     "layouts": "en,uk,pl",
-    "min_len": 3,
+    # One letter is worth judging now that short words come from curated sets
+    # («z» -> «я»); a blank is never a word.
+    "min_len": 1,
     "skip_classes": [],
     # Off by default: the log is metadata-only on purpose. Turning this on adds
     # the keycodes that arrived and the text they decoded to, which is what a
@@ -211,18 +213,19 @@ def panel_open(run=run_command) -> bool:
     return "omarchy-keyboard-panel" in (done.stdout or "")
 
 
-def plan(typed: str, layouts: list[str], min_len: int = 3) -> dict | None:
+def plan(typed: str, layouts: list[str], min_len: int = 1) -> dict | None:
     """What to do with `typed`, or None to leave it alone.
 
     `typed` is what the app received, so it is its own source of truth: the
-    strict check asks whether that string is implausible in the script it is
-    written in while the other script's version is plausible.
+    plausibility check asks whether that string is implausible in the script it
+    is written in while the other script's version is a known word or, failing
+    that, the likelier one by letter statistics.
     """
-    if len(typed) < max(2, min_len):
+    if len(typed) < max(1, min_len):
         return None
-    if not looks_like_wrong_layout_strict(typed, layouts, min_len=min_len):
+    if not looks_like_wrong_layout_plausible(typed, layouts, min_len=min_len):
         return None
-    resolved = convert_selected(typed, layouts)
+    resolved = convert_full(typed, layouts)
     if resolved is None:
         return None
     fixed, target = resolved
@@ -483,7 +486,7 @@ def handle(keycodes_arg: str, *, window: str = "", settings: dict | None = None,
         "ts": int(now * 1000),
         "settings": {"verify": bool(settings.get("verify", True)),
                      "switch": bool(settings.get("switch", True)),
-                     "min_len": settings.get("min_len", 3),
+                     "min_len": settings.get("min_len", 1),
                      "debug": debug},
     }
 
@@ -549,7 +552,7 @@ def handle(keycodes_arg: str, *, window: str = "", settings: dict | None = None,
                       target=previous.get("target"))
 
     chosen = plan(typed, [l.strip() for l in str(settings.get("layouts")).split(",") if l.strip()],
-                  int(settings.get("min_len", 3)))
+                  int(settings.get("min_len", 1)))
     if chosen is None:
         return finish("kept", typed_digest=_digest(typed), typed_len=len(typed))
 
@@ -618,11 +621,19 @@ def main(argv: list[str]) -> int:
         layout = active_layout_id(devices)
         result = self_test(layout)
         words = dictionary.read()
+        # The decision data is a released artifact, not a repository file, so
+        # "which data is in force" is the first question a bug report raises.
+        try:
+            import words as decision_data
+            data_version = getattr(decision_data, "DATA_VERSION", "unknown")
+        except Exception:
+            data_version = None
         payload = {
-            "ok": result["ok"],
+            "ok": result["ok"] and data_version is not None,
             "settings": settings,
             "layouts": layout_codes(devices),
             "active_layout": layout,
+            "data": {"version": data_version},
             "dictionary": {"path": dictionary.DEFAULT_PATH,
                            "exists": words is not None,
                            "words": len(dictionary.keys(words)) if words else 0},
@@ -639,7 +650,7 @@ def main(argv: list[str]) -> int:
         layout = active_layout_id(hyprctl_json(["devices"]))
         typed, unknown = keycodes.decode(keys, layout or "en")
         chosen = plan(typed, [l.strip() for l in str(settings.get("layouts")).split(",") if l.strip()],
-                      int(settings.get("min_len", 3))) if typed else None
+                      int(settings.get("min_len", 1))) if typed else None
         words = dictionary.read()
         listed = bool(typed) and bool(words) and dictionary.covers(words, typed)
         print(json.dumps({"layout": layout, "typed": typed, "unknown": unknown,

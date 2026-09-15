@@ -72,14 +72,21 @@ check("punct: strict english period", looks_like_wrong_layout_strict("hello.", L
 check("punct: strict only symbols", looks_like_wrong_layout_strict("...", L), False)
 
 # The core lib is duplicated into the plugin bundle on purpose; guard against drift.
+# Only the files a bundle actually runs are compared: automatic mode is
+# Hyprland-only, so it lives in the plugin and the Linux bundles do not carry a
+# dead copy of it. The generated data (words.py) is not committed at all — it is
+# a CC BY-SA 4.0 release artifact fetched by the installers and by CI.
 _libdir = os.path.join(os.path.dirname(__file__), "..", "lib")
 _twindir = os.path.join(os.path.dirname(__file__), "..", "..", "omarchy-plugin", "lib")
 if os.path.isdir(_twindir):
-    for _name in ("langswitcher.py", "switch.py", "layoutswitch.py",
-                  "keycodes.py", "autofix.py"):
+    for _name in ("langswitcher.py", "switch.py", "layoutswitch.py", "keycodes.py"):
         check(f"lib copies identical: {_name}",
               filecmp.cmp(os.path.join(_libdir, _name), os.path.join(_twindir, _name),
                           shallow=False), True)
+    check("no dead automatic mode in the Linux bundle",
+          os.path.exists(os.path.join(_libdir, "autofix.py")), False)
+    check("no committed data in the Linux bundle",
+          os.path.exists(os.path.join(_libdir, "words.py")), False)
 else:
     print("skip: lib copies identical (twin not present in this deployment)")
 

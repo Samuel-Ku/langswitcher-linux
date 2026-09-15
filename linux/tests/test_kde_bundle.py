@@ -78,7 +78,9 @@ for name in ("net.local.langswitcher-selection.desktop",
     check(f"{name}: points at the installed worker",
           "Exec=/usr/bin/kde-convert" in body, True)
 
-# The core is shared, not forked.
+# The core is shared, not forked. The generated data (words.py) is not committed
+# at all — it is a CC BY-SA 4.0 release artifact the installer fetches — so only
+# the code the KDE worker runs is compared byte for byte.
 for name in ("langswitcher.py", "switch.py", "layoutswitch.py"):
     check(f"core is byte-identical: {name}",
           filecmp.cmp(os.path.join(BUNDLE, "lib", name),

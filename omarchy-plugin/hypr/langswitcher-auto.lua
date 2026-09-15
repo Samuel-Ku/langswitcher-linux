@@ -63,7 +63,11 @@ for code = 38, 48 do TEXT[code] = true end   -- a..l, ;, '
 for code = 52, 61 do TEXT[code] = true end   -- z..m, ., /
 
 local SPACE = 65
-local MIN_KEYS = 3
+-- Every word is handed over, including a single letter: the decision is the
+-- worker's, and «z» -> «я», «s» -> «і», «d» -> «в» are real Ukrainian words that
+-- were silently dropped here before. The worker vetoes «a»/«i» and every word of
+-- its own language, so the gate only has to keep the batch from being empty.
+local MIN_KEYS = 1
 local MAX_KEYS = 64
 
 local buffer = {}

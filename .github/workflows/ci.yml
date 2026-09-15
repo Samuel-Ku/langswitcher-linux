@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["data-*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # The Linux/Omarchy core, tested against the data artifact users actually get.
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Decision data
+        run: |
+          set -euo pipefail
+          version=$(grep -m1 '^DATA_VERSION=' omarchy-plugin/install-plugin.sh | cut -d'"' -f2)
+          sha=$(grep -m1 '^DATA_SHA256=' omarchy-plugin/install-plugin.sh | cut -d'"' -f2)
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/data-$version/langswitcher-data-$version.tar.gz"
+          if curl -fsSL "$url" -o /tmp/data.tar.gz; then
+            echo "$sha  /tmp/data.tar.gz" | sha256sum -c -
+            tar -xzf /tmp/data.tar.gz words.py
+            mkdir -p omarchy-plugin/lib
+            mv words.py omarchy-plugin/lib/
+            echo "tested against the published artifact $version"
+          else
+            echo "::warning::data-$version is not published yet; generating the same bytes from the pin"
+            python3 tools/build_words.py --install
+          fi
+      - name: Tests
+        run: |
+          set -e
+          for t in linux/tests/test_*.py; do
+            echo "== $t"
+            python3 "$t"
+          done
+
+  # The AutoHotkey port reimplements the decision by hand; replay the same corpus
+  # through both and fail on the first difference. The artifact load time is
+  # measured here too, because nobody can measure it anywhere else.
+  windows-parity:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install AutoHotkey v2
+        run: winget install -e --id AutoHotkey.AutoHotkey --silent --accept-package-agreements --accept-source-agreements
+      - name: Build the data
+        run: python3 tools/build_words.py
+      - name: Python decisions
+        run: python3 linux/tests/windows_parity_corpus.py dump linux/tests/parity-corpus.txt py.tsv
+      - name: AHK decisions and load time
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $candidates = @(
+            (Get-Command AutoHotkey64.exe -ErrorAction SilentlyContinue | Select-Object -First 1).Source,
+            (Get-ChildItem "$env:LOCALAPPDATA\Programs\AutoHotkey" -Recurse -Filter AutoHotkey64.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName,
+            (Get-ChildItem "C:\Program Files\AutoHotkey" -Recurse -Filter AutoHotkey64.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          ) | Where-Object { $_ }
+          if (-not $candidates) { throw "AutoHotkey64.exe not found after install" }
+          $ahk = $candidates[0]
+          Write-Host "using $ahk"
+          $sw = [System.Diagnostics.Stopwatch]::StartNew()
+          & $ahk "windows\LangSwitcher.ahk" --dump "linux\tests\parity-corpus.txt" "ahk.tsv" --data "dist\words.txt"
+          $sw.Stop()
+          if ($LASTEXITCODE -ne 0) { throw "AHK dump failed with $LASTEXITCODE" }
+          Write-Host "AHK run (load + 174 decisions): $($sw.ElapsedMilliseconds) ms"
+          if ($sw.ElapsedMilliseconds -gt 15000) { throw "AHK decision pass too slow: $($sw.ElapsedMilliseconds) ms" }
+      - name: Compare decisions
+        run: python3 linux/tests/windows_parity_corpus.py compare py.tsv ahk.tsv
+
+  # Tag `data-<DATA_VERSION>` to publish the artifact: rebuilt from the pin,
+  # checked against the SHA-256 the installers carry, then attached to a release.
+  release-data:
+    if: startsWith(github.ref, 'refs/tags/data-')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: python3 tools/build_words.py
+      - name: Verify the pin
+        run: |
+          set -euo pipefail
+          version=$(grep -m1 '^DATA_VERSION=' omarchy-plugin/install-plugin.sh | cut -d'"' -f2)
+          sha=$(grep -m1 '^DATA_SHA256=' omarchy-plugin/install-plugin.sh | cut -d'"' -f2)
+          test "data-$version" = "$GITHUB_REF_NAME" || {
+            echo "tag $GITHUB_REF_NAME does not match DATA_VERSION=$version"; exit 1; }
+          python3 tools/build_words.py --check dist
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            --format=gnu -cf - -C dist NOTICE SHA256SUMS words.py words.txt \
+            | gzip -n -9 > "/tmp/langswitcher-data-$version.tar.gz"
+          echo "$sha  /tmp/langswitcher-data-$version.tar.gz" | sha256sum -c -
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#data-}"
+          gh release create "$GITHUB_REF_NAME" \
+            "/tmp/langswitcher-data-$version.tar.gz" \
+            --title "LangSwitcher data $version" \
+            --notes-file dist/NOTICE

@@ -60,8 +60,13 @@ irm https://raw.githubusercontent.com/Samuel-Ku/langswitcher-linux/main/windows/
 
 На Omarchy до цього є авто-режим (плагін сам ловить пробіл) і **словник
 користувача**: слово, яке він перетворив дарма, досить стерти й надрукувати
-знову — воно запам'ятається і більше не чіпатиметься. Деталі —
-у [`omarchy-plugin/README.md`](omarchy-plugin/README.md).
+знову — воно запам'ятається і більше не чіпатиметься. Рішення ухвалюють
+частотні списки української та англійської плюс оцінка літерних n-грамів, тож
+перетворюються і **однолітерні слова** (`z` → `я`), і **відмінкові форми**,
+яких немає в жодному списку (`абетки`, `автономної`), і **одруки**
+(`ghbdsm` → `привіь`), і **український IT-сленг** (`rjvsn` → `коміт`).
+Списки й статистика — згенеровані (`tools/build_words.py`), не рукописні.
+Деталі — у [`omarchy-plugin/README.md`](omarchy-plugin/README.md).
 
 На Fedora KDE авто-режиму немає і бути не може: Plasma 6 не дає скриптам
 бачити клавіатуру (єдиний справжній API у KWin замкнений на екранні читачі).
@@ -91,8 +96,22 @@ irm https://raw.githubusercontent.com/Samuel-Ku/langswitcher-linux/main/windows/
   `install.sh`, spec для RPM
 - [`linux/`](linux/) — Ubuntu/Mint: `bin/linux-convert` (Wayland/X11 автовизначення),
   `install.sh` (apt/dnf/pacman + шорткати GNOME/Cinnamon), тести
-- [`windows/`](windows/) — Windows 11: `LangSwitcher.ahk` (усе в одному файлі),
-  `install.bat`, `install.ps1`
+- [`tools/build_words.py`](tools/build_words.py) — генератор даних (частотні
+  списки + літерні n-грами) з одного пінованого джерела; пише `dist/words.py`
+  і `dist/words.txt` з заголовком про джерело й ліцензію
+- [`windows/`](windows/) — Windows 11: `LangSwitcher.ahk` (хуки, розкладки,
+  рішення, трей), `langswitcher-data.txt` (качається інсталятором), `install.bat`,
+  `install.ps1`
+
+## Дані й ліцензія
+
+Код — MIT (спадок оригіналу). Але дані, з яких авто-режим ухвалює рішення, —
+похідні від CC BY-SA 4.0 корпусу (`hermitdave/FrequencyWords`, далі
+OPUS/OpenSubtitles), тож **у репозиторії їх немає**: `words.py`/`words.txt`
+публікуються як release-ассет, пінований URL-ом і SHA-256 в інсталяторах.
+Інсталятори качають, звіряють хеш і аж тоді підміняють встановлене. Атрибуція й
+умови — у `NOTICE` всередині артефакту та в заголовку кожного згенерованого
+файлу.
 
 ## Подяка
 

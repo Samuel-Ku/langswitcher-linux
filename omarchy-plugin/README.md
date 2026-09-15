@@ -70,9 +70,30 @@ text while you type, so it asks first. Turn it off at any time with
 { "enabled": false }
 ```
 
+### The decision data
+
+Automatic mode decides with word lists and letter n-gram weights that live in
+`lib/words.py`. That file is **not in the repository**: it is derived from a
+CC BY-SA 4.0 corpus (`hermitdave/FrequencyWords`, itself from
+OPUS/OpenSubtitles) while this project is MIT, so it ships as a **GitHub Release
+asset** pinned by URL and SHA-256 in `install-plugin.sh`. The installer fetches
+it into a staging directory, verifies the hash, and only then replaces the
+plugin — a failed download leaves a working install untouched.
+
+Offline, or to install a data version the pin does not name:
+
+```sh
+# unpack langswitcher-data-<version>.tar.gz from the release, then
+LANGSWITCHER_DATA_DIR=/path/to/unpacked ./omarchy-plugin/install-plugin.sh --auto
+```
+
+`bin/langswitcher-auto --check` reports the loaded data version, and automatic
+mode stays out of the way if the data is missing rather than guessing.
+
 The settings file also takes `verify` (see below), `switch` (move the active
 layout after a fix, default `true`), `min_len` (shortest word worth judging,
-default 3), `layouts`, `skip_classes` (extra window classes to stay out of) and
+default 1 — even a single key is judged, because `z` is `я`), `layouts`,
+`skip_classes` (extra window classes to stay out of) and
 `debug` — which adds the raw keycodes that arrived, the text they decoded to and
 the layout in force to `last-auto.json`. That is what a "nothing happened"
 report needs; it is off by default because the log is otherwise metadata-only.
@@ -101,10 +122,21 @@ How it works, and what keeps it safe:
   something counts as typing. Wtype (and any other virtual keyboard) uploads its
   own keymap and numbers keysyms from 9 upwards, so its keycodes fall outside the
   text block and end the buffered word instead of pretending to extend it.
-- The decision is the same conservative one the hotkey path uses:
-  `looks_like_wrong_layout_strict`. A word is only touched when it is implausible
-  in its own script and plausible in the other one, so `hello` and `привіт` are
-  never rewritten; `ghbdsn` (no Latin vowel, Cyrillic vowels after conversion) is.
+- The decision has three levels, from the surest to the most general
+  (`looks_like_wrong_layout_plausible` in `lib/langswitcher.py`):
+  1. a string that is a real word of its own language is never touched —
+     `hello`, `test`, `us`, but also `привіт` and `це`;
+  2. a conversion that is a known word of the other language is applied — this is
+     where `z` → `я`, `zr` → `як`, `wt` → `це`, `]]` → `її` and `руддщ` →
+     `hello` come from, backed by the frequency lists in `lib/words.py` plus the
+     curated one/two-letter sets;
+  3. otherwise the letter statistics decide: the n-gram score of the target must
+     beat the source by a margin. That is what catches the inflected forms no
+     50k list contains (45% of the distinct words in a Ukrainian Wikipedia
+     article), typos (`ghbdsm` → `привіь`, ready to be fixed), and Ukrainian IT
+     slang (`rjvsn` → `коміт`, `ltgkjq` → `деплой`).
+  On a Ukrainian Wikipedia article 97.4% of inflected forms convert; on English
+  prose 1 word in 4802 converts (`qnx`).
 - Before anything is deleted it *proves* the caret is still behind that word:
   it selects the previous word and reads it back (primary selection, Ctrl+C as
   the fallback). If you have already moved on and typed the next word, the proof
@@ -117,9 +149,9 @@ How it works, and what keeps it safe:
   shell's select-word), out of a window that changed under it, out of a run that
   starts while an Omarchy panel owns the keyboard, and out of any keycode it
   cannot decode. Everything it refuses is logged rather than guessed.
-- Conservative by construction: `руддщ` (English typed with the Ukrainian layout)
-  already contains a Ukrainian vowel, so the strict check leaves it alone — the
-  hotkey is still the tool for the other direction.
+- Both directions work without the hotkey now: `ghbdsn` → `привіт` and
+  `руддщ` → `hello`. The veto in level 1 is what keeps the reverse direction
+  from eating real Ukrainian words.
 - The heuristic cannot know that `kbd` or `ssh` is a word, so the user's own
   verdict is recorded and consulted *before* the heuristic: a rejected word is
   never touched again. See **Dictionary and undo**.
@@ -297,7 +329,8 @@ python3 ../linux/tests/test_convert.py                        # self-tests
 - `bin/langswitcher-auto` — automatic mode's entry point (what the Lua module calls)
 - `hypr/langswitcher-auto.lua` — Hyprland key buffer; enable with `require("hypr.langswitcher-auto")`
 - `lib/keycodes.py` — X11 keycode → character, per layout
-- `lib/langswitcher.py` — conversion core + the strict auto-mode heuristic
+- `lib/langswitcher.py` — conversion core + the auto-mode plausibility decision
+- `lib/words.py` — generated word lists and letter n-grams (`tools/build_words.py`)
 - `lib/layoutswitch.py` — `hyprctl switchxkblayout`, after a conversion
 - `lib/dictionary.py` — the user's dictionary: a hand-editable word list, cap and eviction
 - `lib/autofix.py` — automatic mode: decode, decide, prove, rewrite, switch, learn, undo

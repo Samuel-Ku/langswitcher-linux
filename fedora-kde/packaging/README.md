@@ -19,10 +19,10 @@ for `ydotool`, which `--dry-run` shows you first.
 
 ```sh
 sudo dnf install rpm-build
-git archive --prefix=langswitcher-linux-1.1.0/ \
-    -o ~/rpmbuild/SOURCES/langswitcher-linux-1.1.0.tar.gz HEAD
+git archive --prefix=langswitcher-linux-1.2.0/ \
+    -o ~/rpmbuild/SOURCES/langswitcher-linux-1.2.0.tar.gz HEAD
 rpmbuild -bb fedora-kde/packaging/langswitcher-kde.spec
-sudo dnf install ~/rpmbuild/RPMS/noarch/langswitcher-kde-1.1.0-1*.noarch.rpm
+sudo dnf install ~/rpmbuild/RPMS/noarch/langswitcher-kde-1.2.0-1*.noarch.rpm
 ```
 
 The package is `noarch` and installs:

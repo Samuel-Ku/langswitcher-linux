@@ -14,7 +14,10 @@ import os
 import sys
 import tempfile
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
+# Automatic mode ships only in the Omarchy plugin (the Linux bundles are
+# hotkey-only), so its tests import the core from there.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..",
+                                "omarchy-plugin", "lib"))
 
 import autofix  # noqa: E402
 import dictionary  # noqa: E402
@@ -44,8 +47,24 @@ check("plan keeps polish", autofix.plan("Zażółć", L), None)
 check("plan keeps too short", autofix.plan("gh", L), None)
 check("plan keeps punctuation only", autofix.plan("...", L), None)
 check("plan converts reverse", autofix.plan("руддщ", L),
-      None)  # conservative: "руддщ" has a Ukrainian vowel, so it is left alone
+      {"typed": "руддщ", "fixed": "hello", "target": "en"})
+# «руддщ» — це hello, набране українською розкладкою; тепер воно
+# перетворюється, бо target «hello» — англійське слово, а «руддщ» — ні.
 check("plan min_len is honoured", autofix.plan("ghbd", L, min_len=5), None)
+
+# The reported bug: «z gbie jnfrt» = «я пишу отаке» lost the first two words —
+# «z» never reached the worker (MIN_KEYS=3) and «gbie» had Latin vowels, which
+# the old «no Latin vowel» heuristic read as English.
+check("plan converts a single-letter word", autofix.plan("z", L),
+      {"typed": "z", "fixed": "я", "target": "uk"})
+check("plan keeps the english one-letter words", autofix.plan("a", L), None)
+check("plan keeps bare o", autofix.plan("o", L), None)
+check("plan converts a word with Latin vowels", autofix.plan("gbie", L),
+      {"typed": "gbie", "fixed": "пишу", "target": "uk"})
+# A typo must not stop the conversion: only the layout is wrong, the user fixes
+# the letter afterwards.
+check("plan converts despite a typo", autofix.plan("ghbdsm", L),
+      {"typed": "ghbdsm", "fixed": "привіь", "target": "uk"})
 
 
 # ---- settings --------------------------------------------------------------

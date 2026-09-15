@@ -13,6 +13,8 @@ keep both copies byte-identical.
 No dependencies, stdlib only.
 """
 
+import math
+
 QWERTY = "`1234567890-=qwertyuiop[]\\asdfghjkl;'zxcvbnm,./~!@#$%^&*()_+QWERTYUIOP{}|ASDFGHJKL:\"ZXCVBNM<>?"
 
 _UKRAINIAN = "'1234567890-=йцукенгшщзхї\\фівапролджєячсмитьбю.₴!\"№;%:?*()_+ЙЦУКЕНГШЩЗХЇ/ФІВАПРОЛДЖЄЯЧСМИТЬБЮ,"
@@ -286,6 +288,204 @@ def looks_like_wrong_layout_strict(text: str, layouts: list[str], min_len: int =
     if core.isascii():
         return not _has_vowel(core, _LATIN_VOWELS) and _has_vowel(conv, _CYRILLIC_VOWELS)
     return not _has_vowel(core, _CYRILLIC_VOWELS) and _has_vowel(conv, _LATIN_VOWELS)
+
+
+def _letters(text: str) -> str:
+    """Букви й апостроф.
+
+    Апостроф не сміття: у позиційній розкладці він — клавіша літери є
+    („знаєш“ -> „pyf'i“), тож відкидати його означало б зіпсувати половину слів
+    з є та ї.
+    """
+    return "".join(ch for ch in text if ch.isalpha() or ch in "'\u2019")
+
+
+def _plain_word(text: str) -> bool:
+    """Чи набране — саме слово, без клавіш, що в іншій розкладці стають буквами.
+
+    «hello» і «don't» — так; «,elm» (це «будь») і «le;t» (це «дуже») — ні: кома
+    й крапка з комою тут не пунктуація, а клавіші літер б і ж. Вето дивиться на
+    очищене ядро, тож для таких слів воно бачить не те слово, яке набрали.
+    """
+    return all(ch.isalpha() or ch in "'\u2019" for ch in text.strip())
+
+
+def _uk_words() -> frozenset:
+    from words import uk_set  # ліниво: words.py ~1МБ, worker стартує на кожне слово
+    return uk_set()
+
+
+def _en_words() -> frozenset:
+    from words import en_set
+    return en_set()
+
+
+def _uk_short_words() -> frozenset:
+    from words import UK_SHORT_WORDS
+    return UK_SHORT_WORDS
+
+
+def _en_short_words() -> frozenset:
+    from words import EN_SHORT_WORDS
+    return EN_SHORT_WORDS
+
+
+def _uk_rank() -> dict:
+    from words import uk_rank
+    return uk_rank()
+
+
+def _en_rank() -> dict:
+    from words import en_rank
+    return en_rank()
+
+
+def _uk_model() -> tuple:
+    from words import uk_model
+    return uk_model()
+
+
+def _en_model() -> tuple:
+    from words import en_model
+    return en_model()
+
+
+# Наскільки оцінка цільової абетки мусить переважити оцінку власної, коли
+# словники мовчать про обидва варіанти. 5 підібрано на корпусах (вікі-стаття
+# українською — 3 953 форми; англійська проза — 5 897 слів): 98.9% українських
+# форм перетворюються, а серед англійських слів хибно спрацьовує одне («qnx»).
+NGRAM_MARGIN = 5.0
+# У зворотному напрямку мало не «чи є слово в списку», а «котре з двох частіше».
+# Кириличне зображення дуже частого англійського слова саме є рідкісним
+# українським («еру» — це the, «ин» — by), тож бінарне вето лишало 13% running
+# англійського тексту неконвертованим. Поріг 4 виміряно на 12 вікі-статтях:
+# реверс за зваженою частотою 86.6% -> 96.4%, ціна — одне нове хибне («рук»).
+REVERSE_RANK_MARGIN = 4
+_BACKOFF = 1e-4
+
+
+def _ngram_score(text: str, model: tuple) -> float:
+    """Лог-правдоподібність n-грамів рядка в одній абетці.
+
+    Триграма з відкатом на біграму, далі на уніграму. Саме це ловить відмінкові
+    форми та одруки, яких немає в жодному списку слів: «абетки» і «автономної»
+    не походять від «абетка»/«автономний» жодним словниковим збігом.
+    """
+    unigrams, bigrams, trigrams = model
+    padded = "^" + text + "$"
+    total = 0.0
+    for index in range(len(padded) - 2):
+        gram = padded[index:index + 3]
+        weight = trigrams.get(gram)
+        if weight:
+            total += math.log(weight / (bigrams.get(gram[:2], 0.0) + 1.0))
+            continue
+        weight = bigrams.get(gram[1:], 0.0)
+        probability = weight / (unigrams.get(gram[1], 0.0) + 1.0) if weight else _BACKOFF
+        total += math.log(max(probability, 1e-9))
+    return total
+
+
+def looks_like_wrong_layout_plausible(text: str, layouts: list[str],
+                                      min_len: int = 1) -> bool:
+    """Punto-стиль: чи слово набране в неправильній розкладці.
+
+    Три рівні — від найпевнішого до найзагальнішого:
+
+    1. **Слово власної мови не чіпаємо.** «hello», «test», «us» — англійські
+       слова, «привіт» і «це» — українські. Набране, яке справді є словом своєї
+       мови, лишається як є. Це вето, і саме воно тримає хибні спрацювання на
+       звичайному тексті близько нуля.
+    2. **Відоме слово цільової мови — перетворюємо.** Тут працюють списки слів і
+       куровані набори коротких: «z» -> «я», «zr» -> «як», «wt» -> «це»,
+       «]]» -> «її» (у списку частотних слів усі 33 літери позначені як слова,
+       тому короткі вирішують окремі набори).
+    3. **Інакше — літерна статистика:** оцінка n-грамів цілі мусить переважити
+       оцінку джерела на ``NGRAM_MARGIN``. Це покриває те, чого списки не
+       вміють: відмінювання (45% слів української вікі-статті — форми, яких
+       немає в 50k-корпусі), одруки («ghbdsm» -> «привіт») і нові запозичення
+       (IT-сленг).
+
+    У зворотному напрямку рівень 1 працює з поправкою на ранги: набране
+    кирилицею, яке справді є українським словом, усе одно конвертується, якщо
+    англійська ціль значно частіша за нього (``REVERSE_RANK_MARGIN``) — інакше
+    «еру» (the) і «ин» (by) лишалися б недоторканими в усьому англійському
+    тексті, а це 13% його слів.
+
+    Пунктуація не руйнує рішення, бо конвертація йде по всій клавіші, а не по
+    «очищеному» ядру: „le;t“ -> „дуже“, „[jxe“ -> „хочу“, „,elm“ -> „будь“ (у
+    цільовій розкладці ; [ , — це букви). Апостроф теж буква (є/ї).
+    """
+    if len(layouts) < 2 or _is_polish_text(text):
+        return False
+    resolved = convert_full(text, layouts)
+    if resolved is None:
+        return False
+    conv, _ = resolved
+    source = _letters(text).lower()
+    target = _letters(conv).lower()
+    if not target or target == source:
+        return False
+    if len(target) < max(1, min_len):
+        return False
+    # Вето дивиться на ядро, а не на очищені букви: «hello.» — це «hello», але
+    # «le;t» — не «let» («;» у цільовій розкладці — буква ж), тож англійське
+    # слово всередині не мусить його рятувати.
+    source_word = _split_affixes(text.strip())[1].lower()
+    plain = _plain_word(text)
+    if text.isascii():
+        source_known = source_word in _en_words() or source_word in _en_short_words()
+        target_known = target in _uk_words() or target in _uk_short_words()
+        # Вето тримає «hello» і «hello.», але не «,elm»: там провідна кома — це
+        # «б», і очищене ядро «elm» — не те слово, яке набрали.
+        if source_known and (plain or not target_known):
+            return False
+        if target_known:
+            return True
+        if len(target) <= 2:
+            return False
+        return (_ngram_score(target, _uk_model())
+                - _ngram_score(source, _en_model())) > NGRAM_MARGIN
+    # Зворотний напрямок. Справжнє українське слово зазвичай означає, що людина
+    # й мала на увазі українську. Але кириличне зображення дуже частого
+    # англійського слова саме є рідкісним українським словом, тож бінарне вето
+    # тут не працює: порівнюємо ранги. Умова «конвертація — самі лише літери»
+    # потрібна, бо ранг рахується по очищених літерах, а в застосунок пішов би
+    # і розділовий знак («рух» -> «he[»).
+    source_known = source_word in _uk_words() or source_word in _uk_short_words()
+    target_known = target in _en_words() or target in _en_short_words()
+    if source_known and (plain or not target_known):
+        if not target_known or not conv.isalpha():
+            return False
+        source_rank = _uk_rank().get(source_word)
+        target_rank = _en_rank().get(target)
+        if source_rank is None or target_rank is None:
+            return False
+        return target_rank * REVERSE_RANK_MARGIN < source_rank
+    if target_known:
+        return True
+    if len(target) <= 2:
+        return False
+    return (_ngram_score(target, _en_model())
+            - _ngram_score(source, _uk_model())) > NGRAM_MARGIN
+
+
+def convert_full(text: str, layouts: list[str]) -> tuple[str, str] | None:
+    """Як ``convert_selected``, але без обрізання країв: у неправильній
+    розкладці клавіша „[“ — це „х“, а не пунктуація, тому „[jxe“ -> „хочу“,
+    а „ghbdsn.“ -> „привіт.“ (крапка лишається крапкою)."""
+    if len(layouts) < 2:
+        return None
+    if _is_polish_text(text):
+        return None
+    src = detect_source_layout(text, layouts)
+    if src is None:
+        return None
+    target = next((layout for layout in layouts if layout != src), layouts[0])
+    converted = convert(text, src, target)
+    if converted is None:
+        return None
+    return converted, target
 
 
 def _tokenize(text: str) -> list[str]:

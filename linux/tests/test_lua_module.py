@@ -117,9 +117,13 @@ check("shift marks its own key", commands,
 commands, _ = lua_run(GHBDSN + [press(SPACE)] + [("release", SPACE), press(SPACE)])
 check("fires once per word", len(commands), 1)
 
-# Words too short to judge are not reported at all.
+# Every word is handed to the worker, a single key included: «z» -> «я» is a
+# real Ukrainian word, and dropping it here is what left «z gbie jnfrt» half
+# Latin. The gate only exists so the worker is not spawned for nothing.
+commands, _ = lua_run([press(42), press(SPACE)])
+check("one key fires the worker", commands, [f"{WORKER} 42 --window gtk"])
 commands, _ = lua_run([press(42), press(43), press(SPACE)])
-check("too short: silent", commands, [])
+check("two letters fire the worker", commands, [f"{WORKER} 42,43 --window gtk"])
 
 # This machine delivers every key twice (Hyprland's event plus fcitx5's virtual
 # keyboard forwarding it), with identical keycode and timestamp. Buffering both
