@@ -19,6 +19,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Decision data
+        id: data
         run: |
           set -euo pipefail
           version=$(grep -m1 '^DATA_VERSION=' omarchy-plugin/install-plugin.sh | cut -d'"' -f2)
@@ -30,9 +31,11 @@ jobs:
             mkdir -p omarchy-plugin/lib
             mv words.py omarchy-plugin/lib/
             echo "tested against the published artifact $version"
+            echo "published=yes" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::data-$version is not published yet; generating the same bytes from the pin"
             python3 tools/build_words.py --install
+            echo "published=no" >> "$GITHUB_OUTPUT"
           fi
       - name: Lua (for the Hyprland key-buffer tests)
         run: sudo apt-get update -qq && sudo apt-get install -y -qq lua5.4
@@ -45,6 +48,18 @@ jobs:
             echo "== $t"
             python3 "$t"
           done
+      # A pin with no release is an installer that cannot install anything, for
+      # everyone. The tests above still ran, so the reason is the only thing left
+      # to report — and this fails the push that broke main.
+      - name: The pinned data must be published
+        if: steps.data.outputs.published == 'no' && github.event_name == 'push'
+        run: |
+          version=$(grep -m1 '^DATA_VERSION=' omarchy-plugin/install-plugin.sh | cut -d'"' -f2)
+          echo "::error::the installers pin data-$version, but that release does not exist"
+          echo "Every install from this commit would fail at the download step."
+          echo "Publish it, then push again:"
+          echo "    git tag data-$version && git push origin data-$version"
+          exit 1
 
   # The AutoHotkey port reimplements the decision by hand; replay the same corpus
   # through both and fail on the first difference. The artifact load time is
