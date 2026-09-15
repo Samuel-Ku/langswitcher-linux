@@ -41,9 +41,11 @@ def dump(corpus: str, out: str) -> None:
 
 
 def compare(left: str, right: str) -> int:
+    # utf-8-sig on the AHK side: a byte-order mark is not a decision, and the
+    # comparison should not hinge on the writer's encoding choice.
     with open(left, encoding="utf-8") as handle:
         ours = [line.rstrip("\n") for line in handle]
-    with open(right, encoding="utf-8") as handle:
+    with open(right, encoding="utf-8-sig") as handle:
         theirs = [line.rstrip("\n") for line in handle]
     if len(ours) != len(theirs):
         print(f"FAIL: {len(ours)} Python decisions vs {len(theirs)} AHK decisions")

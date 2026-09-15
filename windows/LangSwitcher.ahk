@@ -583,7 +583,8 @@ if (A_Args.Length >= 3 && A_Args[1] = "--dump") {
               . (decided ? LastTargetLang : "-") . "`n"
     }
     try FileDelete(A_Args[3])
-    FileAppend(out, A_Args[3], "UTF-8")
+    ; UTF-8-RAW: no byte-order mark, so the first word is not prefixed by one.
+    FileAppend(out, A_Args[3], "UTF-8-RAW")
     ExitApp(0)
 }
 
