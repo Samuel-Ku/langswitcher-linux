@@ -7,6 +7,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
 
 import layoutswitch as ls  # noqa: E402
 
+# The command shapes asserted below are Hyprland's, and those calls do not inject
+# a backend — so name it here instead of inheriting whatever desktop the test
+# machine happens to run. In CI there is no desktop at all and detect_backend
+# answers "", which makes switch_to return False and the assertions meaningless.
+# detect_backend's own decision is tested further down, with injected env/which.
+os.environ["LANGSWITCHER_LAYOUT_BACKEND"] = "hyprland"
+
 fails = []
 
 

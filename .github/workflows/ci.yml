@@ -55,7 +55,9 @@ jobs:
       - name: Install AutoHotkey v2
         run: winget install -e --id AutoHotkey.AutoHotkey --silent --accept-package-agreements --accept-source-agreements
       - name: Build the data
-        run: python3 tools/build_words.py
+        # --install also drops words.py where the Python driver imports it from;
+        # dist/words.txt is what the AHK reads.
+        run: python3 tools/build_words.py --install
       - name: Python decisions
         run: python3 linux/tests/windows_parity_corpus.py dump linux/tests/parity-corpus.txt py.tsv
       - name: AHK decisions and load time
