@@ -84,9 +84,13 @@ jobs:
           # leaves $LASTEXITCODE empty. Start-Process -Wait gives the real exit
           # code, and /ErrorStdOut sends script errors to the log instead of a
           # message box nobody can click on a runner.
+          # Absolute paths: AHK resolves relative ones against its own working
+          # directory, which is not the checkout.
+          $script = Join-Path $PWD "windows\LangSwitcher.ahk"
+          $corpus = Join-Path $PWD "linux\tests\parity-corpus.txt"
+          $data = Join-Path $PWD "dist\words.txt"
           $proc = Start-Process -FilePath $ahk -Wait -PassThru `
-            -ArgumentList @("/ErrorStdOut", "windows\LangSwitcher.ahk", "--dump",
-                            "linux\tests\parity-corpus.txt", "ahk.tsv", "--data", "dist\words.txt") `
+            -ArgumentList @("/ErrorStdOut", $script, "--dump", $corpus, "ahk.tsv", "--data", $data) `
             -RedirectStandardOutput "ahk.out" -RedirectStandardError "ahk.err"
           $sw.Stop()
           if ($proc.ExitCode -ne 0) {

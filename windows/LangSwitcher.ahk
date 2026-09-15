@@ -192,6 +192,8 @@ UkShort := Map(), EnShort := Map()
 UkUni := Map(), UkBi := Map(), UkTri := Map()
 EnUni := Map(), EnBi := Map(), EnTri := Map()
 DataReady := false
+DataPath := ""
+DataError := ""
 
 ; Kept identical to NGRAM_MARGIN / REVERSE_RANK_MARGIN in lib/langswitcher.py.
 NgramMargin := 5.0
@@ -263,23 +265,28 @@ FillGrams(body, &map) {
 
 LoadData() {
     global DataVersion, UkWords, EnWords, UkRank, EnRank, UkShort, EnShort
-    global UkUni, UkBi, UkTri, EnUni, EnBi, EnTri, DataReady
+    global UkUni, UkBi, UkTri, EnUni, EnBi, EnTri, DataReady, DataPath, DataError
     path := A_ScriptDir "\langswitcher-data.txt"
     Loop A_Args.Length {
         if (A_Args[A_Index] = "--data" && A_Args.Length >= A_Index + 1)
             path := A_Args[A_Index + 1]
     }
+    DataPath := path, DataError := ""
     DataReady := false
-    if !FileExist(path)
+    if !FileExist(path) {
+        DataError := "no such file"
         return false
+    }
     text := FileRead(path, "UTF-8")
     if RegExMatch(text, "version (\S+)", &m)
         DataVersion := m[1]
     parts := SplitDataSections(text)
     for name in ["uk_words", "en_words", "uk_short", "en_short", "uk_slang",
                  "uk_uni", "uk_bi", "uk_tri", "en_uni", "en_bi", "en_tri"] {
-        if !parts.Has(name)
+        if !parts.Has(name) {
+            DataError := "section missing: " name
             return false
+        }
     }
     discard := Map()
     ukCount := FillWords(parts["uk_words"], &UkWords, &UkRank)
@@ -559,7 +566,7 @@ ToggleSwitch() {
 ; before the typing hook starts, so it is safe to run unattended.
 if (A_Args.Length >= 3 && A_Args[1] = "--dump") {
     if (!DataReady) {
-        FileAppend("data-not-loaded`n", "*")
+        FileAppend("data-not-loaded: " DataPath " (" DataError ")`n", "*")
         ExitApp(1)
     }
     out := ""
