@@ -257,11 +257,13 @@ AddSlang(tokens, &setMap, &rankMap, base) {
     }
 }
 
-FillGrams(tokens, &map) {
-    map := Map()
+; The parameter is not called `map`: AutoHotkey names are case-insensitive, so
+; it would shadow the built-in Map() the body needs to call.
+FillGrams(tokens, &table) {
+    table := Map()
     Loop tokens.Length // 2 {
         i := (A_Index - 1) * 2 + 1
-        map[tokens[i]] := (tokens[i + 1] + 0.0) / DataScale
+        table[tokens[i]] := (tokens[i + 1] + 0.0) / DataScale
     }
 }
 
