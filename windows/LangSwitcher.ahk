@@ -3,6 +3,9 @@
 ; if it looks like the wrong layout. Tray icon toggles the auto mode.
 ; Requires AutoHotkey v2 (winget install AutoHotkey.AutoHotkey).
 ; Keep this file UTF-8 encoded (Cyrillic maps inside).
+; Escape rules are v2's: a literal quote inside a string is `" (doubling it is
+; v1 syntax and ends the string, which is why the parser rejected these maps),
+; and a literal backtick is ``. Keep them that way.
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 SendMode "Input"
@@ -24,8 +27,8 @@ LastTargetLang := ""
 A_IconTip := "LangSwitcher — Shift+Shift: convert, Space: auto"
 
 ; ================= Layout maps (same tables as the macOS original) =================
-QWERTY := "`1234567890-=qwertyuiop[]\asdfghjkl;'zxcvbnm,./~!@#$%^&*()_+QWERTYUIOP{}|ASDFGHJKL:""ZXCVBNM<>?"
-UKR    := "'1234567890-=йцукенгшщзхї\фівапролджєячсмитьбю.₴!""№;%:?*()_+ЙЦУКЕНГШЩЗХЇ/ФІВАПРОЛДЖЄЯЧСМИТЬБЮ,"
+QWERTY := "``1234567890-=qwertyuiop[]\asdfghjkl;'zxcvbnm,./~!@#$%^&*()_+QWERTYUIOP{}|ASDFGHJKL:`"ZXCVBNM<>?"
+UKR    := "'1234567890-=йцукенгшщзхї\фівапролджєячсмитьбю.₴!`"№;%:?*()_+ЙЦУКЕНГШЩЗХЇ/ФІВАПРОЛДЖЄЯЧСМИТЬБЮ,"
 
 EnToUk := Map()
 UkToEn := Map()
