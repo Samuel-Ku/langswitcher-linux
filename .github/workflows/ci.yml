@@ -78,6 +78,19 @@ jobs:
         # --install also drops words.py where the Python driver imports it from;
         # dist/words.txt is what the AHK reads.
         run: python3 tools/build_words.py --install
+      # The stranger's Windows path is the one nobody here can run: a syntax error
+      # in install.ps1 would only show up on their machine.
+      - name: The Windows installers must parse
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "$PWD\windows\install.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) {
+            $errors | ForEach-Object { Write-Host $_ }
+            throw "windows/install.ps1 has syntax errors"
+          }
+          Write-Host "ok: windows/install.ps1 parses"
       - name: Python decisions
         run: python3 linux/tests/windows_parity_corpus.py dump linux/tests/parity-corpus.txt py.tsv
       - name: AHK decisions and load time
