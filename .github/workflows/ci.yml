@@ -51,6 +51,7 @@ jobs:
   # measured here too, because nobody can measure it anywhere else.
   windows-parity:
     runs-on: windows-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -79,9 +80,19 @@ jobs:
           if (-not $ahk) { throw "AutoHotkey64.exe not found after install" }
           Write-Host "using $ahk"
           $sw = [System.Diagnostics.Stopwatch]::StartNew()
-          & $ahk "windows\LangSwitcher.ahk" --dump "linux\tests\parity-corpus.txt" "ahk.tsv" --data "dist\words.txt"
+          # AutoHotkey64.exe is a GUI-subsystem app: `& $ahk` returns at once and
+          # leaves $LASTEXITCODE empty. Start-Process -Wait gives the real exit
+          # code, and /ErrorStdOut sends script errors to the log instead of a
+          # message box nobody can click on a runner.
+          $proc = Start-Process -FilePath $ahk -Wait -PassThru `
+            -ArgumentList @("/ErrorStdOut", "windows\LangSwitcher.ahk", "--dump",
+                            "linux\tests\parity-corpus.txt", "ahk.tsv", "--data", "dist\words.txt") `
+            -RedirectStandardOutput "ahk.out" -RedirectStandardError "ahk.err"
           $sw.Stop()
-          if ($LASTEXITCODE -ne 0) { throw "AHK dump failed with $LASTEXITCODE" }
+          if ($proc.ExitCode -ne 0) {
+            Get-Content "ahk.out", "ahk.err" -ErrorAction SilentlyContinue | Write-Host
+            throw "AHK dump failed with exit code $($proc.ExitCode)"
+          }
           Write-Host "AHK run (load + 174 decisions): $($sw.ElapsedMilliseconds) ms"
           if ($sw.ElapsedMilliseconds -gt 15000) { throw "AHK decision pass too slow: $($sw.ElapsedMilliseconds) ms" }
       - name: Compare decisions
