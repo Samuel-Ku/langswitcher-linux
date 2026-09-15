@@ -12,14 +12,22 @@ keyboard), modifier chords such as the Right-Alt layout switch, and words that
 are too short to judge.
 """
 import os
+import shutil
 import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MODULE = os.path.join(HERE, "..", "..", "omarchy-plugin", "hypr", "langswitcher-auto.lua")
 WORKER = "/home/test/.config/omarchy/plugins/stealth.langswitcher/bin/langswitcher-auto"
+# The interpreter is spelled `lua` where this was written and `lua5.4` on a
+# runner, so it is configurable and its absence is a skip, not a failure.
+LUA = os.environ.get("LUA", "lua")
 
 fails = []
+
+if not shutil.which(LUA):
+    print(f"skip: no {LUA} interpreter (the Hyprland module needs a Lua runner)")
+    sys.exit(0)
 
 
 def check(name, got, want):
@@ -209,7 +217,7 @@ check("class sanitized", commands, [f"{WORKER} 42,43,56,40,39,57 --window weirdr
 # Reloading the config must not leave the previous handler alive, or every word
 # would be processed twice.
 script = PREAMBLE + '\nfor i = 1, #calls do print("CMD " .. calls[i]) end'
-done = subprocess.run(["lua", "-"], input=script, capture_output=True, text=True,
+done = subprocess.run([LUA, "-"], input=script, capture_output=True, text=True,
                       env=dict(os.environ, LS_MODULE=MODULE, HOME="/home/test",
                                LS_LOAD_TWICE="1"), timeout=30)
 check("reload run succeeded", done.returncode, 0)

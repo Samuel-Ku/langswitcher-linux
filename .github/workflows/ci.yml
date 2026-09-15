@@ -34,7 +34,11 @@ jobs:
             echo "::warning::data-$version is not published yet; generating the same bytes from the pin"
             python3 tools/build_words.py --install
           fi
+      - name: Lua (for the Hyprland key-buffer tests)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lua5.4
       - name: Tests
+        env:
+          LUA: lua5.4
         run: |
           set -e
           for t in linux/tests/test_*.py; do
@@ -64,13 +68,15 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $candidates = @(
-            (Get-Command AutoHotkey64.exe -ErrorAction SilentlyContinue | Select-Object -First 1).Source,
-            (Get-ChildItem "$env:LOCALAPPDATA\Programs\AutoHotkey" -Recurse -Filter AutoHotkey64.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName,
+          # @(...) around the whole pipeline: with one match the pipeline
+          # unrolls to a bare string, and [0] would then index its first letter.
+          $found = @(
+            (Get-Command AutoHotkey64.exe -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+            (Get-ChildItem "$env:LOCALAPPDATA\Programs\AutoHotkey" -Recurse -Filter AutoHotkey64.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
             (Get-ChildItem "C:\Program Files\AutoHotkey" -Recurse -Filter AutoHotkey64.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
           ) | Where-Object { $_ }
-          if (-not $candidates) { throw "AutoHotkey64.exe not found after install" }
-          $ahk = $candidates[0]
+          $ahk = @($found)[0]
+          if (-not $ahk) { throw "AutoHotkey64.exe not found after install" }
           Write-Host "using $ahk"
           $sw = [System.Diagnostics.Stopwatch]::StartNew()
           & $ahk "windows\LangSwitcher.ahk" --dump "linux\tests\parity-corpus.txt" "ahk.tsv" --data "dist\words.txt"
