@@ -51,7 +51,7 @@ jobs:
   # measured here too, because nobody can measure it anywhere else.
   windows-parity:
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

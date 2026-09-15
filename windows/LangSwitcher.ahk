@@ -10,6 +10,17 @@
 #SingleInstance Force
 SendMode "Input"
 
+; A runner cannot click the error dialog AutoHotkey shows for a runtime error,
+; so a headless run reports to stdout and exits instead of hanging the job.
+HeadlessError(err, mode) {
+    FileAppend("ahk-error: " err.Message " (" err.File ":" err.Line ")`n", "*")
+    ExitApp(1)
+    return true
+}
+
+if (A_Args.Length >= 1 && A_Args[1] = "--dump")
+    OnError(HeadlessError)
+
 ; ================= Settings =================
 DoubleShiftMs := 300
 AutoEnabled := true
@@ -200,53 +211,45 @@ NgramMargin := 5.0
 ReverseRankMargin := 4
 DataScale := 100          ; the artifact stores n-gram weights scaled to integers
 
-SplitDataSections(text) {
-    out := Map()
-    name := "", buf := ""
+; Parse the artifact into Map(section -> Array of tokens), in one pass.
+; The obvious "append every line to one buffer" version is quadratic — 74,000
+; concatenations over ~1 MB — and took the whole CI job's ten minutes on a
+; runner before it was cancelled.
+ParseData(text) {
+    out := Map(), name := ""
     for line in StrSplit(text, "`n", "`r") {
         t := Trim(line)
         if (t = "" || SubStr(t, 1, 1) = "#")
             continue
         if (SubStr(t, 1, 1) = "[") {
-            if (name != "")
-                out[name] := buf
             close := InStr(t, "]")
             name := SubStr(t, 2, close - 2)
-            buf := ""
+            out[name] := []
             continue
         }
-        buf .= (buf = "" ? "" : " ") . t
+        if (name = "" || !out.Has(name))
+            continue
+        for token in StrSplit(t, " ")
+            if (token != "")
+                out[name].Push(token)
     }
-    if (name != "")
-        out[name] := buf
     return out
 }
 
-DataTokens(body) {
-    body := Trim(RegExReplace(body, "\s+", " "))
-    return (body = "") ? [] : StrSplit(body, " ")
-}
-
-; Rank is the position in the whitespace-split list, exactly as words.py builds
-; it, so both sides rank a word identically.
-FillWords(body, &setMap, &rankMap) {
+; Rank is the position in the token list, exactly as words.py builds it, so both
+; sides rank a word identically.
+FillWords(tokens, &setMap, &rankMap) {
     setMap := Map(), rankMap := Map()
-    index := 0
-    for token in DataTokens(body) {
-        if (token = "")
-            continue
-        index += 1
+    for index, token in tokens {
         setMap[token] := true
         rankMap[token] := index
     }
-    return index
+    return tokens.Length
 }
 
-AddSlang(body, &setMap, &rankMap, base) {
+AddSlang(tokens, &setMap, &rankMap, base) {
     index := 0
-    for token in DataTokens(body) {
-        if (token = "")
-            continue
+    for token in tokens {
         setMap[token] := true
         if (!rankMap.Has(token))
             rankMap[token] := base + index
@@ -254,9 +257,8 @@ AddSlang(body, &setMap, &rankMap, base) {
     }
 }
 
-FillGrams(body, &map) {
+FillGrams(tokens, &map) {
     map := Map()
-    tokens := DataTokens(body)
     Loop tokens.Length // 2 {
         i := (A_Index - 1) * 2 + 1
         map[tokens[i]] := (tokens[i + 1] + 0.0) / DataScale
@@ -280,7 +282,7 @@ LoadData() {
     text := FileRead(path, "UTF-8")
     if RegExMatch(text, "version (\S+)", &m)
         DataVersion := m[1]
-    parts := SplitDataSections(text)
+    parts := ParseData(text)
     for name in ["uk_words", "en_words", "uk_short", "en_short", "uk_slang",
                  "uk_uni", "uk_bi", "uk_tri", "en_uni", "en_bi", "en_tri"] {
         if !parts.Has(name) {
