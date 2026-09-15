@@ -8,6 +8,18 @@ SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEST="$HOME/.local/share/langswitcher"
 BINLINK="$HOME/.local/bin/linux-convert"
 
+# The shared one-liner forwards its extra flags to whichever bundle it picked,
+# so --auto can arrive here. This bundle has no automatic mode (no supported way
+# to watch the keyboard on GNOME/KWin), which is deliberate, not an error.
+for arg in "$@"; do
+  case "$arg" in
+    --auto) echo "(!) automatic mode is not available in this bundle — the hotkey" \
+                  "(SUPER+\`) is what it installs; see linux/README.md" >&2 ;;
+    --help|-h) echo "usage: install.sh [--auto (ignored here)]" ; exit 0 ;;
+    *) echo "(!) ignoring unknown argument: $arg" >&2 ;;
+  esac
+done
+
 echo "== 1/3 deps =="
 if command -v apt-get >/dev/null 2>&1; then
   sudo apt-get update \

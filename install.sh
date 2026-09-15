@@ -13,17 +13,41 @@ BRANCH="${LANGSWITCHER_BRANCH:-main}"
 OS_RELEASE="${OS_RELEASE:-/etc/os-release}"
 WANT="auto"
 SRC_OVERRIDE="${LANGSWITCHER_SRC:-}"
+PRINT_PLAN=""
+PRINT_HELP=""
+# Flags this script does not know are handed to the component installer, so the
+# one-liner can ask for what that component offers (`--auto` on Omarchy,
+# `--dry-run` / `--no-ydotool` on Fedora KDE) without this script enumerating
+# every bundle's options.
+EXTRA=()
 
 for arg in "$@"; do
   case "$arg" in
     --print-plan) PRINT_PLAN=1 ;;
     --component) shift_next=1 ;;
+    --help|-h) PRINT_HELP=1 ;;
     *)
       if [[ "${shift_next:-}" == "1" ]]; then WANT="$arg"; shift_next=0;
-      elif [[ "$arg" == --component=* ]]; then WANT="${arg#--component=}"; fi ;;
+      elif [[ "$arg" == --component=* ]]; then WANT="${arg#--component=}";
+      else EXTRA+=("$arg"); fi ;;
   esac
 done
 WANT="${LANGSWITCHER_COMPONENT:-$WANT}"
+
+if [[ "$PRINT_HELP" == "1" ]]; then
+  cat <<'USAGE'
+LangSwitcher installer — picks the right bundle for this machine.
+
+  curl -fsSL https://raw.githubusercontent.com/Samuel-Ku/langswitcher-linux/main/install.sh | bash
+  curl -fsSL .../install.sh | bash -s -- --auto     # Omarchy: also turn on automatic mode
+
+Flags:
+  --print-plan            detect and report, change nothing
+  --component <name>      force omarchy-plugin | linux | fedora-kde
+  everything else         passed to the bundle's own installer, e.g. --auto
+USAGE
+  exit 0
+fi
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
@@ -88,9 +112,10 @@ else
   SRC="$(echo "$TMP"/*/)"
 fi
 
+# ${EXTRA[@]+...} keeps `set -u` happy when nothing was passed through.
 case "$COMPONENT" in
-  omarchy-plugin) bash "$SRC/omarchy-plugin/install-plugin.sh" ;;
-  fedora-kde) bash "$SRC/fedora-kde/install.sh" ;;
-  linux) bash "$SRC/linux/install.sh" ;;
+  omarchy-plugin) bash "$SRC/omarchy-plugin/install-plugin.sh" ${EXTRA[@]+"${EXTRA[@]}"} ;;
+  fedora-kde) bash "$SRC/fedora-kde/install.sh" ${EXTRA[@]+"${EXTRA[@]}"} ;;
+  linux) bash "$SRC/linux/install.sh" ${EXTRA[@]+"${EXTRA[@]}"} ;;
   *) echo "unknown component: $COMPONENT" >&2; exit 1 ;;
 esac

@@ -22,6 +22,11 @@ for arg in "$@"; do
     --dry-run) DRY=1 ;;
     --no-ydotool) DO_YDOTOOL=0 ;;
     --no-shortcuts) DO_SHORTCUTS=0 ;;
+    # The shared one-liner forwards --auto to whichever bundle it picked. This
+    # bundle has no automatic mode and that is deliberate, not an error, so say
+    # so and install the hotkey path the user asked for either way.
+    --auto) echo "(!) automatic mode is not available on KDE Plasma — installing the" \
+                   "hotkey path (see linux/README.md and fedora-kde/README.md)" >&2 ;;
     *) echo "(!) unknown argument: $arg" >&2; exit 2 ;;
   esac
 done

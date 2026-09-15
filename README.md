@@ -22,10 +22,17 @@
 
 ## Встановлення в один рядок
 
-**Linux** (сам зрозуміє систему — Omarchy, Ubuntu, Mint, …):
+**Linux** (сам зрозуміє систему — Omarchy, Ubuntu, Mint, Fedora KDE, …):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Samuel-Ku/langswitcher-linux/main/install.sh | bash
+```
+
+На Omarchy до цього варто додати `--auto` — тоді вмикається автоматичний режим
+(сам ловить пробіл і виправляє слово):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Samuel-Ku/langswitcher-linux/main/install.sh | bash -s -- --auto
 ```
 
 **Windows 11** (PowerShell):
@@ -33,6 +40,23 @@ curl -fsSL https://raw.githubusercontent.com/Samuel-Ku/langswitcher-linux/main/i
 ```powershell
 irm https://raw.githubusercontent.com/Samuel-Ku/langswitcher-linux/main/windows/install.ps1 | iex
 ```
+
+### Що надіслати людині
+
+Скопіюй їй один рядок — вона вставляє його в термінал і більше нічого не робить:
+
+| Її система | Що надіслати |
+|---|---|
+| Omarchy (Hyprland) | `curl -fsSL https://raw.githubusercontent.com/Samuel-Ku/langswitcher-linux/main/install.sh \| bash -s -- --auto` |
+| Ubuntu / Mint | `curl -fsSL https://raw.githubusercontent.com/Samuel-Ku/langswitcher-linux/main/install.sh \| bash` |
+| Fedora KDE | те саме, що Ubuntu |
+| Windows 11 | `irm https://raw.githubusercontent.com/Samuel-Ku/langswitcher-linux/main/windows/install.ps1 \| iex` (у PowerShell) |
+
+`install.sh` спершу друкує, що саме знайшов і що збирається зробити
+(`--print-plan` — тільки показати), і за потреби передає прапорці бандлу:
+`--auto` на Omarchy, `--dry-run` / `--no-ydotool` / `--no-shortcuts` на Fedora KDE.
+На Ubuntu/Mint авто-режиму немає (Wayland не дає скриптам бачити клавіатуру) —
+`--auto` там чесно про це скаже й поставить хоткей.
 
 ## Як це виглядає
 
