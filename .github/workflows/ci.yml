@@ -89,8 +89,9 @@ jobs:
           $script = Join-Path $PWD "windows\LangSwitcher.ahk"
           $corpus = Join-Path $PWD "linux\tests\parity-corpus.txt"
           $data = Join-Path $PWD "dist\words.txt"
+          $out = Join-Path $PWD "ahk.tsv"
           $proc = Start-Process -FilePath $ahk -Wait -PassThru `
-            -ArgumentList @("/ErrorStdOut", $script, "--dump", $corpus, "ahk.tsv", "--data", $data) `
+            -ArgumentList @("/ErrorStdOut", $script, "--dump", $corpus, $out, "--data", $data) `
             -RedirectStandardOutput "ahk.out" -RedirectStandardError "ahk.err"
           $sw.Stop()
           if ($proc.ExitCode -ne 0) {
